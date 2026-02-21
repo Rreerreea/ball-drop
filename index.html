@@ -1,0 +1,2044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Ball Drop Race</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1e2e;
+  overflow: hidden;
+  font-family: -apple-system, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+canvas { display: block; }
+
+/* ===== Lobby ===== */
+#lobby {
+  position: fixed; inset: 0; z-index: 100;
+  background: #1a1e2e;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 20px;
+  overflow-y: auto;
+}
+#lobby h1 {
+  font-size: clamp(22px, 6vw, 32px); font-weight: 800; color: #fff;
+  letter-spacing: -0.5px; text-align: center;
+}
+#lobby .subtitle {
+  font-size: 14px; color: rgba(255,255,255,0.4); font-weight: 500;
+  margin-top: -4px;
+}
+
+/* Top bar */
+.lobby-topbar {
+  display: flex; align-items: center; gap: 12px;
+  width: min(90vw, 340px); justify-content: space-between;
+  margin-bottom: 4px;
+}
+.topbar-btn {
+  width: 42px; height: 42px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,0.08); color: #fff; font-size: 20px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.topbar-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.15); }
+.coin-display {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 20px; padding: 8px 16px;
+}
+.coin-icon { font-size: 18px; }
+.coin-count { color: #FFD700; font-size: 18px; font-weight: 800; }
+
+/* Ball grid */
+.ball-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 12px; max-width: 320px; padding: 10px;
+}
+.ball-slot {
+  width: 64px; height: 64px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.2s;
+  position: relative; overflow: hidden;
+  border: 3px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+}
+.ball-slot img {
+  width: 52px; height: 52px; border-radius: 12px;
+}
+.ball-slot:active { transform: scale(0.9); }
+.ball-slot.selected {
+  border-color: #2979FF;
+  box-shadow: 0 0 20px rgba(41,121,255,0.3);
+  background: rgba(41,121,255,0.1);
+}
+.ball-slot.bet-target {
+  border-color: #FFD700;
+  box-shadow: 0 0 16px rgba(255,215,0,0.3);
+}
+.ball-slot .slot-label {
+  position: absolute; bottom: -20px; font-size: 11px;
+  color: rgba(255,255,255,0.5); font-weight: 600; white-space: nowrap;
+}
+.ball-slot.selected .slot-label { color: #2979FF; }
+.ball-slot .bet-badge {
+  position: absolute; top: -2px; right: -2px;
+  background: #FFD700; color: #1a1e2e; font-size: 10px; font-weight: 800;
+  border-radius: 8px; padding: 1px 5px; display: none;
+}
+.ball-slot.bet-target .bet-badge { display: block; }
+
+/* Betting section */
+.bet-section {
+  width: min(90vw, 320px);
+  text-align: center;
+}
+.bet-label {
+  color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 600;
+  margin-bottom: 8px;
+}
+.bet-buttons {
+  display: flex; gap: 8px; justify-content: center;
+}
+.bet-btn {
+  padding: 8px 14px; border: 2px solid rgba(255,215,0,0.2); border-radius: 12px;
+  background: rgba(255,215,0,0.05); color: #FFD700; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+}
+.bet-btn:active { transform: scale(0.93); }
+.bet-btn.selected {
+  border-color: #FFD700; background: rgba(255,215,0,0.15);
+  box-shadow: 0 0 12px rgba(255,215,0,0.2);
+}
+.bet-btn:disabled { opacity: 0.3; cursor: default; }
+.bet-info {
+  color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 8px;
+  min-height: 18px;
+}
+.bet-info.has-bet { color: #FFD700; }
+.pot-display {
+  color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 4px;
+}
+
+#startBtn {
+  padding: 16px 56px; border: none; border-radius: 50px;
+  background: #2979FF; color: #fff; font-size: 18px; font-weight: 800;
+  cursor: pointer; transition: all 0.2s; letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+#startBtn:hover { transform: scale(1.05); background: #1565C0; }
+#startBtn:active { transform: scale(0.95); }
+
+.boost-hint {
+  display: flex; align-items: center; gap: 8px;
+  color: rgba(255,255,255,0.35); font-size: 13px;
+}
+.boost-hint span { font-size: 18px; }
+
+/* ===== Results ===== */
+#results {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(26,30,46,0.95);
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 20px; overflow-y: auto;
+  backdrop-filter: blur(10px);
+}
+#results h1 { font-size: 28px; color: #fff; font-weight: 800; margin-bottom: 4px; }
+.payout-display {
+  font-size: 22px; font-weight: 800; margin-bottom: 8px;
+}
+.payout-display.positive { color: #4CAF50; }
+.payout-display.negative { color: #FF5252; }
+.payout-display.neutral { color: #FFD700; }
+#results .place {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; border-radius: 14px;
+  background: rgba(255,255,255,0.06); width: min(85vw, 320px);
+}
+#results .place.your-place {
+  background: rgba(41,121,255,0.15);
+  border: 1px solid rgba(41,121,255,0.3);
+}
+#results .place .medal { font-size: 28px; width: 36px; text-align: center; }
+#results .place .pname { color: #fff; font-size: 16px; font-weight: 600; flex: 1; }
+#results .place .pname small { color: rgba(255,255,255,0.4); font-weight: 400; font-size: 12px; }
+.results-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 8px;
+}
+.reward-btn {
+  padding: 10px 24px; border: 2px solid rgba(255,215,0,0.3); border-radius: 14px;
+  background: rgba(255,215,0,0.08); color: #FFD700; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+}
+.reward-btn:active { transform: scale(0.95); }
+.reward-btn:disabled { opacity: 0.5; cursor: default; }
+.low-coins-hint {
+  color: #FF9800; font-size: 12px; font-weight: 600;
+}
+#restartBtn {
+  padding: 14px 48px; border: none; border-radius: 50px;
+  background: #2979FF; color: #fff; font-size: 17px; font-weight: 800;
+  cursor: pointer; transition: all 0.2s;
+}
+#restartBtn:hover { transform: scale(1.05); }
+#restartBtn:active { transform: scale(0.95); }
+
+/* ===== HUD ===== */
+#hud {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 50;
+  background: rgba(26,30,46,0.8); backdrop-filter: blur(10px);
+  border-radius: 24px; padding: 6px 14px;
+  display: none; gap: 10px; align-items: center;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.hud-player {
+  display: flex; align-items: center; gap: 4px; font-size: 13px;
+}
+.hud-player .pos { color: #FFD700; font-weight: 700; }
+.hud-player img { width: 22px; height: 22px; border-radius: 5px; }
+.hud-player .hud-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  object-fit: cover; border: 1.5px solid #2979FF;
+}
+.hud-player.is-you { background: rgba(41,121,255,0.15); border-radius: 12px; padding: 2px 6px; }
+
+/* ===== Boost HUD ===== */
+#boost-hud {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  z-index: 50; display: none; align-items: center; gap: 8px;
+  background: rgba(26,30,46,0.85); backdrop-filter: blur(10px);
+  border-radius: 20px; padding: 10px 20px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+#boost-hud .boost-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #2979FF; transition: all 0.3s;
+  box-shadow: 0 0 8px rgba(41,121,255,0.5);
+}
+#boost-hud .boost-dot.used { background: rgba(255,255,255,0.15); box-shadow: none; }
+#boost-hud .boost-label {
+  color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 600;
+}
+#boost-hud .boost-tap {
+  color: #2979FF; font-size: 12px; font-weight: 600;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+
+/* ===== Countdown ===== */
+#countdown {
+  position: fixed; inset: 0; z-index: 90;
+  display: none; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+#countdown .num {
+  font-size: 120px; font-weight: 900; color: #fff;
+  text-shadow: 0 0 40px rgba(41,121,255,0.5);
+  animation: countPop 0.8s ease-out;
+}
+@keyframes countPop {
+  0% { transform: scale(2); opacity: 0; }
+  50% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0; }
+}
+
+/* ===== Tap flash ===== */
+.tap-flash {
+  position: fixed; z-index: 80; pointer-events: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(41,121,255,0.3), transparent 70%);
+  animation: tapFlash 0.4s ease-out forwards;
+}
+@keyframes tapFlash {
+  0% { transform: scale(0); opacity: 1; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+/* ===== Coin Toasts ===== */
+#coin-toasts {
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+  z-index: 200; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.coin-toast {
+  font-size: 18px; font-weight: 800; padding: 4px 12px;
+  border-radius: 12px; animation: coinFloat 1.4s ease-out forwards;
+  white-space: nowrap;
+}
+.coin-toast.positive { color: #4CAF50; background: rgba(76,175,80,0.15); }
+.coin-toast.negative { color: #FF5252; background: rgba(255,82,82,0.15); }
+@keyframes coinFloat {
+  0% { opacity: 1; transform: translateY(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-40px); }
+}
+
+/* ===== Modals ===== */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 150;
+  background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.active { display: flex; }
+.modal-content {
+  background: #242842; border-radius: 24px;
+  padding: 28px 24px; width: min(90vw, 360px);
+  max-height: 80vh; overflow-y: auto;
+  position: relative;
+}
+.modal-content h2 {
+  color: #fff; font-size: 22px; font-weight: 800; text-align: center;
+  margin-bottom: 16px;
+}
+.modal-close {
+  position: absolute; top: 12px; right: 16px;
+  background: none; border: none; color: rgba(255,255,255,0.4);
+  font-size: 22px; cursor: pointer; padding: 4px;
+}
+.modal-close:active { color: #fff; }
+.modal-btn {
+  display: block; width: 100%; padding: 14px; border: none; border-radius: 14px;
+  background: #2979FF; color: #fff; font-size: 16px; font-weight: 800;
+  cursor: pointer; margin-top: 16px; transition: all 0.2s;
+}
+.modal-btn:active { transform: scale(0.97); }
+.modal-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* Daily Bonus Calendar */
+.daily-calendar {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+  margin-bottom: 8px;
+}
+.daily-day {
+  background: rgba(255,255,255,0.05); border-radius: 12px;
+  padding: 8px 4px; text-align: center;
+  border: 2px solid transparent;
+}
+.daily-day .day-num {
+  color: rgba(255,255,255,0.5); font-size: 10px; font-weight: 600;
+}
+.daily-day .day-reward {
+  color: #FFD700; font-size: 12px; font-weight: 800; margin-top: 4px;
+}
+.daily-day.claimed {
+  background: rgba(76,175,80,0.15); border-color: rgba(76,175,80,0.3);
+}
+.daily-day.claimed .day-num { color: #4CAF50; }
+.daily-day.current {
+  background: rgba(41,121,255,0.15); border-color: #2979FF;
+  animation: dayPulse 1.5s ease-in-out infinite;
+}
+@keyframes dayPulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 12px rgba(41,121,255,0.4)} }
+
+/* Profile */
+.profile-name {
+  text-align: center; color: #fff; font-size: 20px; font-weight: 700;
+  margin-bottom: 16px;
+}
+.profile-avatar {
+  width: 64px; height: 64px; border-radius: 50%;
+  object-fit: cover; border: 3px solid #2979FF;
+  display: block; margin: 0 auto 12px;
+}
+.profile-stats {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.stat {
+  background: rgba(255,255,255,0.05); border-radius: 12px;
+  padding: 12px 8px; text-align: center;
+}
+.stat-val { color: #fff; font-size: 20px; font-weight: 800; }
+.stat-label { color: rgba(255,255,255,0.4); font-size: 11px; font-weight: 600; margin-top: 4px; }
+
+/* Shop */
+.shop-grid {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.shop-item {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,0.05); border-radius: 14px;
+  padding: 12px 14px;
+}
+.shop-item.is-equipped { border: 1px solid rgba(41,121,255,0.3); background: rgba(41,121,255,0.08); }
+.shop-emoji { font-size: 28px; }
+.shop-name { color: #fff; font-size: 15px; font-weight: 600; flex: 1; }
+.shop-btn {
+  padding: 6px 14px; border: none; border-radius: 10px;
+  font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+  background: rgba(255,215,0,0.15); color: #FFD700;
+}
+.shop-btn:active { transform: scale(0.93); }
+.shop-btn.owned { background: rgba(41,121,255,0.15); color: #2979FF; }
+.shop-btn.equipped { background: #2979FF; color: #fff; }
+.shop-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* Interstitial */
+.interstitial-overlay {
+  position: fixed; inset: 0; z-index: 160;
+  background: #1a1e2e;
+  display: none; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px;
+}
+.interstitial-overlay.active { display: flex; }
+.loading-spinner {
+  width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1);
+  border-top-color: #2979FF; border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.interstitial-overlay p { color: rgba(255,255,255,0.4); font-size: 14px; }
+.interstitial-timer {
+  color: rgba(255,255,255,0.25); font-size: 12px; margin-top: 4px;
+}
+
+/* Search / Fake Multiplayer */
+.search-status {
+  display: flex; align-items: center; gap: 8px;
+  color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 600;
+  min-height: 20px;
+}
+.search-status .search-spinner {
+  width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: #2979FF; border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.search-status .online-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #4CAF50; box-shadow: 0 0 6px rgba(76,175,80,0.5);
+}
+.ball-slot .avatar-circle {
+  width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 800; color: #fff;
+}
+.ball-slot { border-radius: 50%; }
+.ball-slot.empty-slot {
+  border-color: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.02);
+}
+.ball-slot.joining {
+  animation: slotJoin 0.4s ease-out;
+}
+@keyframes slotJoin {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.hud-player .hud-circle {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: #fff;
+}
+</style>
+</head>
+<body>
+
+<!-- Coin Toasts -->
+<div id="coin-toasts"></div>
+
+<!-- Lobby -->
+<div id="lobby">
+  <div class="lobby-topbar">
+    <button class="topbar-btn" onclick="showProfile()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0112 0v1"/></svg>
+    </button>
+    <div class="coin-display">
+      <span class="coin-icon">🪙</span>
+      <span class="coin-count" id="coinCount">200</span>
+    </div>
+    <button class="topbar-btn" onclick="showShop()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+    </button>
+  </div>
+  <h1>Ball Drop Race</h1>
+  <div class="search-status" id="searchStatus">
+    <div class="search-spinner"></div>
+    <span id="searchText">Finding opponents...</span>
+  </div>
+  <div class="ball-grid" id="ballGrid"></div>
+
+  <div class="bet-section" id="betSection">
+    <div class="bet-label">Place your bet:</div>
+    <div class="bet-buttons">
+      <button class="bet-btn" data-amount="10" onclick="placeBet(10)">10 🪙</button>
+      <button class="bet-btn" data-amount="25" onclick="placeBet(25)">25 🪙</button>
+      <button class="bet-btn" data-amount="50" onclick="placeBet(50)">50 🪙</button>
+      <button class="bet-btn" data-amount="100" onclick="placeBet(100)">100 🪙</button>
+    </div>
+    <div class="bet-info" id="betInfo">No bet — you still earn +5 for racing!</div>
+  </div>
+
+  <div class="boost-hint"><span>⚡</span> You get 3 boosts per race — tap to dash!</div>
+  <button id="startBtn" onclick="startGame()">DROP!</button>
+</div>
+
+<!-- Results -->
+<div id="results">
+  <h1 id="resultsTitle">Race Over</h1>
+  <div class="payout-display" id="payoutDisplay"></div>
+  <div id="placesList"></div>
+  <div class="results-actions">
+    <div class="low-coins-hint" id="lowCoinsHint" style="display:none">Low on coins? Watch an ad!</div>
+    <button class="reward-btn" id="rewardBtn" onclick="watchAd()">📺 Watch Ad = +30 🪙</button>
+    <button id="restartBtn" onclick="restart()">RACE AGAIN</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud"></div>
+
+<!-- Boost HUD -->
+<div id="boost-hud">
+  <span class="boost-label">⚡ BOOST</span>
+  <div class="boost-dot" id="b0"></div>
+  <div class="boost-dot" id="b1"></div>
+  <div class="boost-dot" id="b2"></div>
+  <span class="boost-tap">TAP!</span>
+</div>
+
+<!-- Countdown -->
+<div id="countdown"><div class="num" id="countNum"></div></div>
+
+<!-- Canvas -->
+<canvas id="gameCanvas"></canvas>
+
+<!-- Daily Bonus Modal -->
+<div class="modal-overlay" id="dailyModal">
+  <div class="modal-content">
+    <h2>Daily Bonus!</h2>
+    <div class="daily-calendar" id="dailyCalendar"></div>
+    <button class="modal-btn" id="dailyClaimBtn" onclick="claimDaily()">Claim!</button>
+    <button class="modal-close" onclick="closeModal('dailyModal')">✕</button>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="profileModal">
+  <div class="modal-content">
+    <h2>Profile</h2>
+    <div id="profileContent"></div>
+    <button class="modal-close" onclick="closeModal('profileModal')">✕</button>
+  </div>
+</div>
+
+<!-- Shop Modal -->
+<div class="modal-overlay" id="shopModal">
+  <div class="modal-content">
+    <h2>Effects Shop</h2>
+    <div class="coin-display" style="justify-content:center;margin-bottom:14px">
+      <span class="coin-icon">🪙</span>
+      <span class="coin-count" id="shopCoinCount">200</span>
+    </div>
+    <div class="shop-grid" id="shopGrid"></div>
+    <button class="modal-close" onclick="closeModal('shopModal')">✕</button>
+  </div>
+</div>
+
+<!-- Interstitial -->
+<div class="interstitial-overlay" id="interstitial">
+  <div class="loading-spinner"></div>
+  <p>Loading next race...</p>
+  <div class="interstitial-timer" id="interstitialTimer"></div>
+</div>
+
+<script>
+// ============ TELEGRAM WEBAPP ============
+const TG = window.Telegram?.WebApp;
+let tgUser = null;
+let tgAvatarImg = null;
+
+if (TG) {
+  try {
+    TG.ready();
+    TG.expand();
+    if (TG.setHeaderColor) TG.setHeaderColor('#1a1e2e');
+    if (TG.setBackgroundColor) TG.setBackgroundColor('#1a1e2e');
+  } catch (e) {}
+  tgUser = TG.initDataUnsafe?.user || null;
+  if (tgUser?.photo_url) {
+    tgAvatarImg = new Image();
+    tgAvatarImg.crossOrigin = 'anonymous';
+    tgAvatarImg.src = tgUser.photo_url;
+  }
+}
+
+// ============ PERSISTENCE ============
+const STORAGE_KEY = 'ballDropRace_v2';
+const DEFAULT_STATE = {
+  coins: 200, totalRaces: 0, totalWins: 0, streak: 0,
+  bestStreak: 0, lastDaily: null, ownedEffects: [], equippedEffect: null,
+  raceCount: 0, totalEarned: 0
+};
+
+let gameData = loadState();
+
+function loadState() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return { ...DEFAULT_STATE, ...JSON.parse(saved) };
+  } catch (e) {}
+  return { ...DEFAULT_STATE };
+}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(gameData)); } catch (e) {}
+}
+function addCoins(amount) {
+  gameData.coins += amount;
+  if (amount > 0) gameData.totalEarned += amount;
+  saveState();
+  updateCoinDisplay();
+  showCoinToast(amount);
+}
+function updateCoinDisplay() {
+  document.querySelectorAll('.coin-count').forEach(el => {
+    el.textContent = gameData.coins;
+  });
+}
+function showCoinToast(amount) {
+  const container = document.getElementById('coin-toasts');
+  const toast = document.createElement('div');
+  toast.className = 'coin-toast ' + (amount >= 0 ? 'positive' : 'negative');
+  toast.textContent = (amount >= 0 ? '+' : '') + amount + ' 🪙';
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 1500);
+}
+
+// ============ DAILY BONUS ============
+const DAILY_REWARDS = [50, 75, 100, 125, 150, 200, 300];
+
+function checkDailyBonus() {
+  const today = new Date().toDateString();
+  if (gameData.lastDaily === today) return;
+  renderDailyCalendar();
+  showModal('dailyModal');
+}
+function renderDailyCalendar() {
+  const cal = document.getElementById('dailyCalendar');
+  cal.innerHTML = '';
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  let currentStreak = gameData.streak;
+  if (gameData.lastDaily !== yesterday && gameData.lastDaily !== null) {
+    currentStreak = 0;
+  }
+  const dayIdx = currentStreak % 7;
+  for (let i = 0; i < 7; i++) {
+    const day = document.createElement('div');
+    day.className = 'daily-day';
+    if (i < dayIdx) day.classList.add('claimed');
+    if (i === dayIdx) day.classList.add('current');
+    day.innerHTML = `<div class="day-num">Day ${i + 1}</div><div class="day-reward">${DAILY_REWARDS[i]}</div>`;
+    cal.appendChild(day);
+  }
+}
+function claimDaily() {
+  const today = new Date().toDateString();
+  if (gameData.lastDaily === today) return;
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  if (gameData.lastDaily === yesterday) {
+    gameData.streak++;
+  } else {
+    gameData.streak = gameData.lastDaily === null ? 1 : 1;
+  }
+  const dayIdx = (gameData.streak - 1) % 7;
+  const reward = DAILY_REWARDS[dayIdx];
+  if (gameData.streak > gameData.bestStreak) gameData.bestStreak = gameData.streak;
+  gameData.lastDaily = today;
+  saveState();
+  addCoins(reward);
+  closeModal('dailyModal');
+}
+
+// ============ MODALS ============
+function showModal(id) { document.getElementById(id).classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+// ============ EFFECTS SHOP ============
+const EFFECTS = [
+  { id: 'fire', name: 'Fire Trail', price: 100, emoji: '🔥' },
+  { id: 'rainbow', name: 'Rainbow Trail', price: 150, emoji: '🌈' },
+  { id: 'glow', name: 'Glow Aura', price: 75, emoji: '✨' },
+  { id: 'confetti', name: 'Confetti', price: 100, emoji: '🎊' },
+  { id: 'lightning', name: 'Lightning', price: 125, emoji: '⚡' },
+];
+
+function showShop() {
+  updateCoinDisplay();
+  renderShop();
+  showModal('shopModal');
+}
+function renderShop() {
+  const grid = document.getElementById('shopGrid');
+  grid.innerHTML = '';
+  EFFECTS.forEach(effect => {
+    const owned = gameData.ownedEffects.includes(effect.id);
+    const equipped = gameData.equippedEffect === effect.id;
+    const canBuy = gameData.coins >= effect.price;
+    const item = document.createElement('div');
+    item.className = 'shop-item' + (equipped ? ' is-equipped' : '');
+    item.innerHTML = `
+      <div class="shop-emoji">${effect.emoji}</div>
+      <div class="shop-name">${effect.name}</div>
+      <button class="shop-btn ${equipped ? 'equipped' : owned ? 'owned' : ''}"
+        ${!owned && !canBuy ? 'disabled' : ''}
+        onclick="shopAction('${effect.id}')">
+        ${equipped ? 'Equipped' : owned ? 'Equip' : effect.price + ' 🪙'}
+      </button>`;
+    grid.appendChild(item);
+  });
+}
+function shopAction(effectId) {
+  const effect = EFFECTS.find(e => e.id === effectId);
+  const owned = gameData.ownedEffects.includes(effectId);
+  if (owned) {
+    gameData.equippedEffect = gameData.equippedEffect === effectId ? null : effectId;
+  } else {
+    if (gameData.coins < effect.price) return;
+    gameData.coins -= effect.price;
+    gameData.ownedEffects.push(effectId);
+    gameData.equippedEffect = effectId;
+  }
+  saveState();
+  updateCoinDisplay();
+  renderShop();
+}
+
+// ============ PROFILE ============
+function showProfile() {
+  const content = document.getElementById('profileContent');
+  const winRate = gameData.totalRaces > 0 ? Math.round(gameData.totalWins / gameData.totalRaces * 100) : 0;
+  const name = tgUser?.first_name || 'Player';
+  let avatarHtml = '';
+  if (tgUser?.photo_url) {
+    avatarHtml = `<img class="profile-avatar" src="${tgUser.photo_url}" crossorigin="anonymous">`;
+  }
+  content.innerHTML = `
+    ${avatarHtml}
+    <div class="profile-name">${name}</div>
+    <div class="profile-stats">
+      <div class="stat"><div class="stat-val">${gameData.totalRaces}</div><div class="stat-label">Races</div></div>
+      <div class="stat"><div class="stat-val">${gameData.totalWins}</div><div class="stat-label">Wins</div></div>
+      <div class="stat"><div class="stat-val">${winRate}%</div><div class="stat-label">Win Rate</div></div>
+      <div class="stat"><div class="stat-val">${gameData.bestStreak}</div><div class="stat-label">Best Streak</div></div>
+      <div class="stat"><div class="stat-val">${gameData.totalEarned}</div><div class="stat-label">Total Earned</div></div>
+      <div class="stat"><div class="stat-val">${gameData.coins}</div><div class="stat-label">Balance</div></div>
+    </div>`;
+  showModal('profileModal');
+}
+
+// ============ CONFIG ============
+const PLAYER_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
+  '#FFEAA7', '#DDA0DD', '#FF8C42', '#98D8C8'
+];
+const NAME_POOL = [
+  'Alex', 'Masha', 'Dan', 'Sofia', 'Max', 'Liza', 'Artem', 'Katya',
+  'Nikita', 'Dima', 'Anna', 'Vlad', 'Sasha', 'Mila', 'Roma', 'Eva',
+  'Igor', 'Yana', 'Tim', 'Olya', 'Kirill', 'Vika', 'Gleb', 'Nika',
+  'Leon', 'Emma', 'Jay', 'Luna', 'Kai', 'Zoe', 'Neo', 'Ivy'
+];
+function shuffleNames() {
+  const pool = [...NAME_POOL];
+  const picked = [];
+  while (picked.length < 8 && pool.length > 0) {
+    const idx = Math.floor(Math.random() * pool.length);
+    picked.push(pool.splice(idx, 1)[0]);
+  }
+  return picked;
+}
+
+// Generate avatar as data URL
+const avatarCache = {};
+function makeAvatarDataURL(name, color, size) {
+  const key = name + color + size;
+  if (avatarCache[key]) return avatarCache[key];
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const cx = c.getContext('2d');
+  cx.beginPath();
+  cx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+  cx.fillStyle = color;
+  cx.fill();
+  cx.font = `bold ${size * 0.42}px -apple-system, sans-serif`;
+  cx.fillStyle = '#fff';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  cx.fillText(name[0].toUpperCase(), size / 2, size / 2 + 1);
+  const url = c.toDataURL();
+  avatarCache[key] = url;
+  return url;
+}
+
+// Preload avatar images for canvas drawing
+const avatarImages = {};
+function preloadAvatar(name, color) {
+  const url = makeAvatarDataURL(name, color, 64);
+  if (avatarImages[name + color]) return;
+  const img = new Image();
+  img.src = url;
+  avatarImages[name + color] = img;
+}
+
+const BALL_RADIUS = 12;
+const WORLD_WIDTH = 420;
+const OBSTACLE_THICKNESS = 22;
+const TRAIL_LENGTH = 30;
+const MAX_BOOSTS = 3;
+const BOOST_FORCE = 0.008;
+const BOOST_COOLDOWN = 800;
+
+// ============ STATE ============
+let players = [];
+let selectedPlayer = 0;
+let gameState = 'lobby';
+let gameTime = 0;
+let engine, world, runner;
+let balls = [];
+let finishOrder = [];
+let cameraY = 0;
+let targetCameraY = 0;
+let cameraManual = 0;
+let courseObstacles = [];
+let animFrame;
+let circleAngle = 0;
+let circleWallsRef = [];
+let circleCenter = { x: 0, y: 0 };
+let circleRadiusRef = 100;
+let circleOpen = false;
+let boostsLeft = MAX_BOOSTS;
+let lastBoostTime = 0;
+let boostEffects = [];
+
+// Betting state
+let betAmount = 0;
+let betTarget = 0;
+let botBets = [];
+let totalPot = 0;
+
+// Effect particles
+let confettiParticles = [];
+let playerFinishedEffect = false;
+
+// ============ BETTING ============
+function placeBet(amount) {
+  if (betAmount === amount) { betAmount = 0; betTarget = selectedPlayer; }
+  else if (gameData.coins >= amount) { betAmount = amount; betTarget = selectedPlayer; }
+  updateBetDisplay();
+}
+function updateBetDisplay() {
+  const info = document.getElementById('betInfo');
+  if (betAmount === 0) {
+    info.textContent = 'No bet — you still earn +5 for racing!';
+    info.className = 'bet-info';
+  } else {
+    const targetName = betTarget === selectedPlayer ? 'yourself' : players[betTarget]?.name || 'Bot';
+    info.textContent = `Betting ${betAmount} 🪙 on ${targetName}`;
+    info.className = 'bet-info has-bet';
+  }
+  document.querySelectorAll('.bet-btn').forEach(btn => {
+    const val = parseInt(btn.dataset.amount);
+    btn.classList.toggle('selected', val === betAmount);
+    btn.disabled = gameData.coins < val;
+  });
+  updateBallGridBets();
+}
+function updateBallGridBets() {
+  document.querySelectorAll('.ball-slot').forEach((s, i) => {
+    s.classList.toggle('selected', i === selectedPlayer);
+    s.classList.toggle('bet-target', betAmount > 0 && i === betTarget && i !== selectedPlayer);
+  });
+}
+function generateBotBets() {
+  botBets = [];
+  const numBots = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < numBots; i++) {
+    botBets.push({
+      target: Math.floor(Math.random() * players.length),
+      amount: [10, 20, 25, 30, 40, 50][Math.floor(Math.random() * 6)]
+    });
+  }
+  totalPot = betAmount;
+  botBets.forEach(b => totalPot += b.amount);
+}
+function calculatePayout() {
+  if (finishOrder.length === 0) return { payout: 5, netGain: 5 - betAmount };
+  const winnerIdx = finishOrder[0];
+  let betsOnWinner = 0;
+  if (betTarget === winnerIdx) betsOnWinner += betAmount;
+  botBets.forEach(b => { if (b.target === winnerIdx) betsOnWinner += b.amount; });
+  let payout = 5; // participation
+  if (betAmount > 0 && betTarget === winnerIdx && betsOnWinner > 0) {
+    payout += Math.floor(totalPot * 0.9 * (betAmount / betsOnWinner));
+  }
+  return { payout, netGain: payout - betAmount };
+}
+
+// ============ LOBBY ============
+let lobbySearchTimers = [];
+
+function initLobby() {
+  const grid = document.getElementById('ballGrid');
+  grid.innerHTML = '';
+  players = new Array(8).fill(null);
+  lobbySearchTimers.forEach(t => clearTimeout(t));
+  lobbySearchTimers = [];
+
+  const names = shuffleNames();
+  const startBtn = document.getElementById('startBtn');
+  startBtn.style.display = 'none';
+  document.getElementById('betSection').style.display = 'none';
+
+  const searchStatus = document.getElementById('searchStatus');
+  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Finding opponents...</span>';
+
+  // Create 8 empty slots
+  for (let i = 0; i < 8; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'ball-slot empty-slot';
+    slot.id = 'slot-' + i;
+    slot.innerHTML = '';
+    grid.appendChild(slot);
+  }
+
+  // Player always fills slot 0 first
+  const playerName = tgUser?.first_name || 'You';
+  const playerColor = PLAYER_COLORS[0];
+  fillSlot(0, playerName, playerColor, true, 100);
+
+  // Fill remaining slots with staggered delays (fake matchmaking)
+  let filled = 1;
+  for (let i = 1; i < 8; i++) {
+    const delay = 300 + Math.random() * 400 + i * 250;
+    const timer = setTimeout(() => {
+      fillSlot(i, names[i], PLAYER_COLORS[i], false, 0);
+      filled++;
+      document.getElementById('searchText').textContent = `${filled}/8 players found`;
+      if (filled === 8) {
+        // All players found
+        setTimeout(() => {
+          searchStatus.innerHTML = '<div class="online-dot"></div><span>8 players ready</span>';
+          startBtn.style.display = '';
+          document.getElementById('betSection').style.display = '';
+          updateBetDisplay();
+        }, 300);
+      }
+    }, delay);
+    lobbySearchTimers.push(timer);
+  }
+
+  selectedPlayer = 0;
+  updateCoinDisplay();
+}
+
+function fillSlot(idx, name, color, isPlayer, delay) {
+  const doFill = () => {
+    preloadAvatar(name, color);
+    players[idx] = {
+      name, color,
+      avatarKey: name + color,
+      finished: false, place: 0,
+      isPlayer: isPlayer,
+      trail: [], botBoostTimer: 0
+    };
+
+    const slot = document.getElementById('slot-' + idx);
+    slot.className = 'ball-slot joining' + (isPlayer ? ' selected' : '');
+    const avatarUrl = makeAvatarDataURL(name, color, 64);
+    slot.innerHTML = `
+      <div class="avatar-circle" style="background:${color}">${name[0].toUpperCase()}</div>
+      <span class="slot-label">${name}</span>
+      <span class="bet-badge">🪙</span>`;
+    slot.onclick = () => selectBall(idx);
+    setTimeout(() => slot.classList.remove('joining'), 400);
+  };
+  if (delay > 0) setTimeout(doFill, delay);
+  else doFill();
+}
+
+function selectBall(idx) {
+  if (!players[idx]) return; // slot not filled yet
+  // If bet is active and tapping a different ball — change bet target
+  if (betAmount > 0 && idx !== selectedPlayer) {
+    betTarget = idx;
+    updateBetDisplay();
+    return;
+  }
+  players.forEach(p => { if (p) p.isPlayer = false; });
+  players[idx].isPlayer = true;
+  selectedPlayer = idx;
+  betTarget = idx;
+  updateBetDisplay();
+}
+
+initLobby();
+
+// Check daily bonus after a short delay
+setTimeout(checkDailyBonus, 500);
+
+// ============ COURSE GENERATION (ORIGINAL HAND-CRAFTED) ============
+function generateCourse() {
+  const obstacles = [];
+  let y = 400;
+  const W = WORLD_WIDTH;
+  const T = OBSTACLE_THICKNESS;
+  let currentY = y;
+  const mid = W / 2;
+
+  // ====== SECTION 1: 4 Spinning X-Crosses (2x2) ======
+  {
+    const armLen = 150;
+    const armThick = 28;
+    const grid = [
+      { x: W * 0.35, y: currentY,       spd: -0.06 },
+      { x: W * 0.65, y: currentY + 40,  spd:  0.06 },
+      { x: W * 0.28, y: currentY + 200, spd: -0.06 },
+      { x: W * 0.72, y: currentY + 200, spd:  0.06 }
+    ];
+    grid.forEach((p, i) => {
+      obstacles.push({ type: 'rect', x: p.x, y: p.y, w: armLen, h: armThick, angle: Math.PI / 4,
+        spinning: true, spinCenter: { x: p.x, y: p.y }, spinSpeed: p.spd, spinId: `s1_${i}_a` });
+      obstacles.push({ type: 'rect', x: p.x, y: p.y, w: armLen, h: armThick, angle: -Math.PI / 4,
+        spinning: true, spinCenter: { x: p.x, y: p.y }, spinSpeed: p.spd, spinId: `s1_${i}_b` });
+    });
+    currentY += 540;
+  }
+
+  // ====== SECTION 2: Triangular S-Curves ======
+  {
+    const arcR = 180;
+    const arcThick = 30;
+    const arcs = [
+      { wallX: W, tipDir: -1, cy: currentY + arcR },
+      { wallX: 0, tipDir:  1, cy: currentY + arcR * 3 },
+      { wallX: W, tipDir: -1, cy: currentY + arcR * 5 },
+    ];
+    const trim = 2;
+    arcs.forEach(arc => {
+      const topY = arc.cy - arcR;
+      const botY = arc.cy + arcR;
+      const tipX = arc.wallX + arc.tipDir * arcR;
+      const tipY = arc.cy;
+      const wallTopX = arc.wallX + arc.tipDir * trim;
+      const wallTopY = topY + trim;
+      const wallBotX = arc.wallX + arc.tipDir * trim;
+      const wallBotY = botY - trim;
+
+      const dx1 = tipX - wallTopX;
+      const dy1 = tipY - wallTopY;
+      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      obstacles.push({ type: 'rect', x: (wallTopX + tipX) / 2, y: (wallTopY + tipY) / 2,
+        w: len1, h: arcThick, angle: Math.atan2(dy1, dx1), lowFriction: true });
+
+      const dx2 = wallBotX - tipX;
+      const dy2 = wallBotY - tipY;
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      obstacles.push({ type: 'rect', x: (tipX + wallBotX) / 2, y: (tipY + wallBotY) / 2,
+        w: len2, h: arcThick, angle: Math.atan2(dy2, dx2), lowFriction: true });
+
+      const dir = arc.tipDir;
+      obstacles.push({ type: 'rect', x: arc.wallX + dir * 20, y: topY + 10,
+        w: 40, h: 10, angle: dir * 0.7, lowFriction: true });
+      obstacles.push({ type: 'rect', x: arc.wallX + dir * 20, y: botY - 10,
+        w: 40, h: 10, angle: -dir * 0.7, lowFriction: true });
+    });
+    currentY += arcR * 6.5;
+  }
+
+  // ====== SECTION 3: 4 Spinning Open Circles ======
+  {
+    const cR = 100;
+    const ringThick = 14;
+    const segs = 50;
+    const segLen = (2 * Math.PI * cR / segs) + 8;
+    const gapSize = 0.45;
+    const positions = [
+      { x: W * 0.20, y: currentY,       gapA: Math.PI * 0.5, spd:  0.07 },
+      { x: W * 0.80, y: currentY + 230, gapA: Math.PI * 0.5, spd: -0.07 },
+      { x: W * 0.20, y: currentY + 460, gapA: Math.PI * 0.5, spd:  0.08 },
+      { x: W * 0.80, y: currentY + 690, gapA: Math.PI * 0.5, spd: -0.08 }
+    ];
+    positions.forEach(({ x, y, gapA, spd }) => {
+      for (let s = 0; s < segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        const diff1 = Math.min(Math.abs(a - gapA), Math.PI * 2 - Math.abs(a - gapA));
+        const gapB = (gapA + Math.PI) % (Math.PI * 2);
+        const diff2 = Math.min(Math.abs(a - gapB), Math.PI * 2 - Math.abs(a - gapB));
+        if (diff1 < gapSize || diff2 < gapSize) continue;
+        obstacles.push({
+          type: 'rect',
+          x: x + Math.cos(a) * cR, y: y + Math.sin(a) * cR,
+          w: segLen, h: ringThick, angle: a + Math.PI / 2,
+          orbital: true, orbitCenter: { x, y }, orbitRadius: cR,
+          orbitBaseAngle: a, orbitSpeed: spd
+        });
+      }
+    });
+    currentY += 920;
+  }
+
+  // ====== SECTION 4: Fast Small Crosses ======
+  {
+    currentY += 20;
+    const fastLen = 120;
+    const fastThick = 18;
+    const fastCrosses = [
+      { x: W * 0.5,  y: currentY,       spd:  0.14 },
+      { x: W * 0.30, y: currentY + 80,  spd: -0.14 },
+      { x: W * 0.70, y: currentY + 80,  spd:  0.14 },
+      { x: W * 0.5,  y: currentY + 160, spd: -0.14 },
+    ];
+    fastCrosses.forEach((p, i) => {
+      obstacles.push({ type: 'rect', x: p.x, y: p.y, w: fastLen, h: fastThick, angle: Math.PI / 4,
+        spinning: true, spinCenter: { x: p.x, y: p.y }, spinSpeed: p.spd, spinId: `s4f_${i}_a` });
+      obstacles.push({ type: 'rect', x: p.x, y: p.y, w: fastLen, h: fastThick, angle: -Math.PI / 4,
+        spinning: true, spinCenter: { x: p.x, y: p.y }, spinSpeed: p.spd, spinId: `s4f_${i}_b` });
+    });
+    currentY += 300;
+  }
+
+  // ====== SECTION 5: Sliding Horizontal Bars ======
+  {
+    const blockW = 58;
+    const blockH = 20;
+    const gapX = 30;
+    const rowGap = 46;
+    const gridRows = 5;
+    for (let r = 0; r < gridRows; r++) {
+      const numBlocks = r % 2 === 0 ? 5 : 4;
+      const totalW = numBlocks * blockW + (numBlocks - 1) * gapX;
+      const startX = (W - totalW) / 2;
+      const dir = r % 2 === 0 ? 1 : -1;
+      for (let c = 0; c < numBlocks; c++) {
+        const bx = startX + c * (blockW + gapX) + blockW / 2;
+        obstacles.push({
+          type: 'rect', x: bx, y: currentY + r * rowGap,
+          w: blockW, h: blockH, angle: 0,
+          sliding: true, slideBaseX: bx,
+          slideSpeed: 0.096 * dir, slideRange: 35
+        });
+      }
+    }
+    currentY += gridRows * rowGap + 60;
+  }
+
+  // ====== SECTION 6: U-Shape Funnel with 3+3 Spinning Crosses ======
+  {
+    const wallT = 20;
+    const uWidth = W * 0.95;
+    const uR = uWidth / 2;
+    const uTop = currentY;
+
+    const crossSize = 320;
+    const crossThick = 16;
+    const leftSpd = -0.055;
+    const rightSpd = 0.072;
+    const lx = mid - uR * 0.52;
+    const rx = mid + uR * 0.52;
+    const crossYs = [uTop + 50, uTop + 190, uTop + 330];
+
+    crossYs.forEach((fy, ri) => {
+      const lSpd = leftSpd;
+      const rSpd = rightSpd;
+      const sz = ri === 2 ? 380 : crossSize;
+
+      obstacles.push({ type: 'rect', x: lx, y: fy, w: sz, h: crossThick, angle: Math.PI / 4,
+        spinning: true, spinCenter: { x: lx, y: fy }, spinSpeed: lSpd, spinId: `funnel_${ri}_la` });
+      obstacles.push({ type: 'rect', x: lx, y: fy, w: sz, h: crossThick, angle: -Math.PI / 4,
+        spinning: true, spinCenter: { x: lx, y: fy }, spinSpeed: lSpd, spinId: `funnel_${ri}_lb` });
+
+      obstacles.push({ type: 'rect', x: rx, y: fy, w: sz, h: crossThick, angle: Math.PI / 4,
+        spinning: true, spinCenter: { x: rx, y: fy }, spinSpeed: rSpd, spinId: `funnel_${ri}_ra` });
+      obstacles.push({ type: 'rect', x: rx, y: fy, w: sz, h: crossThick, angle: -Math.PI / 4,
+        spinning: true, spinCenter: { x: rx, y: fy }, spinSpeed: rSpd, spinId: `funnel_${ri}_rb` });
+    });
+
+    const lastCrossY = crossYs[crossYs.length - 1];
+    const curveCenterY = lastCrossY + 10;
+    const curveR = uR;
+    const curveSegs = 60;
+    const gapSize = 0.11;
+    for (let s = 0; s <= curveSegs; s++) {
+      const a = (s / curveSegs) * Math.PI;
+      const diff = Math.abs(a - Math.PI / 2);
+      if (diff < gapSize) continue;
+      const segLen = (Math.PI * curveR / curveSegs) + 4;
+      obstacles.push({
+        type: 'rect',
+        x: mid + Math.cos(a) * curveR, y: curveCenterY + Math.sin(a) * curveR,
+        w: segLen, h: wallT, angle: a + Math.PI / 2
+      });
+    }
+
+    const wallTop = uTop - 10;
+    const wallBot = curveCenterY + 10;
+    const wallH = wallBot - wallTop;
+    const wallMidY = wallTop + wallH / 2;
+    obstacles.push({ type: 'rect', x: mid - uR, y: wallMidY, w: wallT, h: wallH, angle: 0 });
+    obstacles.push({ type: 'rect', x: mid + uR, y: wallMidY, w: wallT, h: wallH, angle: 0 });
+
+    currentY = curveCenterY + curveR + 80;
+  }
+
+  // FINISH LINE
+  obstacles.push({ type: 'finish', y: currentY });
+
+  // Side walls
+  const wallHeight = currentY + 500;
+  obstacles.push({ type: 'rect', x: -5, y: wallHeight / 2, w: 20, h: wallHeight, angle: 0, isWall: true });
+  obstacles.push({ type: 'rect', x: W + 5, y: wallHeight / 2, w: 20, h: wallHeight, angle: 0, isWall: true });
+
+  return obstacles;
+}
+
+// ============ GAME ENGINE ============
+function startGame() {
+  // Validate and deduct bet
+  if (betAmount > 0) {
+    if (gameData.coins < betAmount) {
+      betAmount = 0;
+      updateBetDisplay();
+      return;
+    }
+    gameData.coins -= betAmount;
+    saveState();
+    updateCoinDisplay();
+  }
+  generateBotBets();
+
+  // Track stats
+  gameData.totalRaces++;
+  gameData.raceCount++;
+  saveState();
+
+  // Set player name from TG
+  if (tgUser) {
+    players[selectedPlayer].name = tgUser.first_name || 'You';
+  }
+
+  document.getElementById('lobby').style.display = 'none';
+  gameState = 'countdown';
+  finishOrder = [];
+  boostsLeft = MAX_BOOSTS;
+  lastBoostTime = 0;
+  boostEffects = [];
+  confettiParticles = [];
+  playerFinishedEffect = false;
+  if (window._finishTimeout) { clearTimeout(window._finishTimeout); window._finishTimeout = null; }
+  balls = [];
+
+  const canvas = document.getElementById('gameCanvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  engine = Matter.Engine.create({
+    gravity: { x: 0, y: 0.75 },
+    positionIterations: 16,
+    velocityIterations: 10,
+    constraintIterations: 4
+  });
+  world = engine.world;
+
+  courseObstacles = generateCourse();
+
+  // Create obstacle bodies
+  courseObstacles.forEach(obs => {
+    if (obs.type === 'finish') return;
+    let body;
+    if (obs.type === 'rect') {
+      body = Matter.Bodies.rectangle(obs.x, obs.y, obs.w, obs.h, {
+        isStatic: true, angle: obs.angle || 0,
+        friction: obs.lowFriction ? 0.01 : 0.5,
+        frictionStatic: obs.lowFriction ? 0.01 : 0.8,
+        restitution: obs.lowFriction ? 0.15 : 0.25,
+        chamfer: (obs.isWall || obs.orbital) ? undefined : { radius: 8 }
+      });
+    } else if (obs.type === 'circle') {
+      body = Matter.Bodies.circle(obs.x, obs.y, obs.radius, {
+        isStatic: true, friction: 0.3, restitution: 0.6
+      });
+    }
+    if (body) {
+      obs.body = body;
+      Matter.Composite.add(world, body);
+    }
+  });
+
+  // Opening circle
+  const circleSegments = 32;
+  const circleRadius = 100;
+  const circleCX = WORLD_WIDTH / 2;
+  const circleCY = 150;
+  circleWallsRef = [];
+  circleCenter = { x: circleCX, y: circleCY };
+  circleRadiusRef = circleRadius;
+  circleAngle = 0;
+  circleOpen = false;
+
+  for (let i = 0; i < circleSegments; i++) {
+    const angle = (i / circleSegments) * Math.PI * 2;
+    const x = circleCX + Math.cos(angle) * circleRadius;
+    const y = circleCY + Math.sin(angle) * circleRadius;
+    const wall = Matter.Bodies.rectangle(x, y, 14, 42, {
+      isStatic: true, angle: angle + Math.PI / 2, friction: 0.2, restitution: 0.3
+    });
+    wall._baseAngle = angle;
+    circleWallsRef.push(wall);
+    Matter.Composite.add(world, wall);
+  }
+
+  // Create player balls
+  players.forEach((p, i) => {
+    const angle = (i / players.length) * Math.PI * 2;
+    const r = 20 + Math.random() * 30;
+    const x = circleCX + Math.cos(angle) * r;
+    const y = circleCY + Math.sin(angle) * r * 0.5 - 10;
+
+    const ball = Matter.Bodies.circle(x, y, BALL_RADIUS, {
+      restitution: 0.3, friction: 0.25, frictionAir: 0.02,
+      density: 0.002, slop: 0.01, label: `player_${i}`
+    });
+
+    balls.push(ball);
+    Matter.Composite.add(world, ball);
+    p.ball = ball;
+    p.finished = false;
+    p.place = 0;
+    p.trail = [];
+    p.botBoostTimer = Math.random() * 300;
+  });
+
+  runner = Matter.Runner.create({ delta: 1000 / 120 });
+  Matter.Runner.run(runner, engine);
+
+  cameraY = 0;
+  targetCameraY = 0;
+  cameraManual = 0;
+  updateBoostHUD();
+
+  // Countdown
+  showCountdown(3, () => {
+    showCountdown(2, () => {
+      showCountdown(1, () => {
+        showCountdown('GO!', () => {
+          circleOpen = true;
+          circleWallsRef.forEach(w => {
+            try { Matter.Composite.remove(world, w); } catch(e) {}
+          });
+          circleWallsRef = [];
+          gameState = 'playing';
+          document.getElementById('boost-hud').style.display = 'flex';
+        });
+      });
+    });
+  });
+
+  document.getElementById('hud').style.display = 'flex';
+  gameLoop();
+}
+
+function showCountdown(val, cb) {
+  const el = document.getElementById('countdown');
+  const num = document.getElementById('countNum');
+  el.style.display = 'flex';
+  num.textContent = val;
+  num.style.animation = 'none';
+  num.offsetHeight;
+  num.style.animation = 'countPop 0.8s ease-out';
+  setTimeout(() => {
+    el.style.display = 'none';
+    if (cb) cb();
+  }, 800);
+}
+
+// ============ BOOST (TAP) ============
+function handleTap(e) {
+  if (gameState !== 'playing') return;
+  if (boostsLeft <= 0) return;
+
+  const now = Date.now();
+  if (now - lastBoostTime < BOOST_COOLDOWN) return;
+
+  const playerBall = players[selectedPlayer].ball;
+  if (!playerBall || players[selectedPlayer].finished) return;
+
+  const hForce = (Math.random() - 0.5) * 0.004;
+  Matter.Body.applyForce(playerBall, playerBall.position, { x: hForce, y: BOOST_FORCE });
+
+  boostsLeft--;
+  lastBoostTime = now;
+
+  boostEffects.push({
+    x: playerBall.position.x, y: playerBall.position.y,
+    life: 1.0, color: players[selectedPlayer].color
+  });
+
+  const touch = e.touches ? e.touches[0] : e;
+  const flash = document.createElement('div');
+  flash.className = 'tap-flash';
+  flash.style.left = (touch.clientX - 30) + 'px';
+  flash.style.top = (touch.clientY - 30) + 'px';
+  flash.style.width = flash.style.height = '60px';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 400);
+
+  updateBoostHUD();
+}
+
+function updateBoostHUD() {
+  for (let i = 0; i < MAX_BOOSTS; i++) {
+    const dot = document.getElementById('b' + i);
+    dot.classList.toggle('used', i >= boostsLeft);
+  }
+}
+
+// Bot boosts
+function botBoosts() {
+  players.forEach((p, i) => {
+    if (i === selectedPlayer || p.finished || !p.ball) return;
+    p.botBoostTimer--;
+    if (p.botBoostTimer <= 0) {
+      const hForce = (Math.random() - 0.5) * 0.003;
+      Matter.Body.applyForce(p.ball, p.ball.position, { x: hForce, y: BOOST_FORCE * 0.8 });
+      p.botBoostTimer = 150 + Math.random() * 250;
+      boostEffects.push({
+        x: p.ball.position.x, y: p.ball.position.y,
+        life: 0.6, color: p.color
+      });
+    }
+  });
+}
+
+document.addEventListener('touchstart', handleTap, { passive: true });
+document.addEventListener('mousedown', handleTap);
+
+// ============ EFFECT RENDERING ============
+function renderEquippedEffect(ctx, player, pos, effectId) {
+  switch (effectId) {
+    case 'fire':
+      if (player.trail.length > 3) {
+        for (let t = Math.max(0, player.trail.length - 12); t < player.trail.length; t++) {
+          const pt = player.trail[t];
+          const progress = (t - Math.max(0, player.trail.length - 12)) / 12;
+          for (let p = 0; p < 2; p++) {
+            const size = 2 + Math.random() * 4 * progress;
+            const ox = (Math.random() - 0.5) * 10;
+            const oy = (Math.random() - 0.5) * 10 - 4;
+            ctx.beginPath();
+            ctx.arc(pt.x + ox, pt.y + oy, size, 0, Math.PI * 2);
+            const r = 200 + Math.floor(Math.random() * 55);
+            const g = Math.floor(Math.random() * 80 + 40);
+            ctx.fillStyle = `rgba(${r},${g},0,${progress * 0.6})`;
+            ctx.fill();
+          }
+        }
+      }
+      break;
+
+    case 'rainbow':
+      if (player.trail.length > 2) {
+        for (let t = 1; t < player.trail.length; t++) {
+          const hue = (gameTime * 4 + t * 25) % 360;
+          const width = (t / player.trail.length) * BALL_RADIUS * 2.2;
+          ctx.beginPath();
+          ctx.moveTo(player.trail[t - 1].x, player.trail[t - 1].y);
+          ctx.lineTo(player.trail[t].x, player.trail[t].y);
+          ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${(t / player.trail.length) * 0.8})`;
+          ctx.lineWidth = width;
+          ctx.lineCap = 'round';
+          ctx.stroke();
+        }
+      }
+      break;
+
+    case 'glow': {
+      const glowR = BALL_RADIUS * 3 + Math.sin(gameTime * 0.08) * BALL_RADIUS;
+      const grad = ctx.createRadialGradient(pos.x, pos.y, BALL_RADIUS * 0.5, pos.x, pos.y, glowR);
+      grad.addColorStop(0, 'rgba(41,121,255,0.35)');
+      grad.addColorStop(0.5, 'rgba(41,121,255,0.12)');
+      grad.addColorStop(1, 'rgba(41,121,255,0)');
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, glowR, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      break;
+    }
+
+    case 'lightning':
+      for (let l = 0; l < 3; l++) {
+        ctx.beginPath();
+        let lx = pos.x, ly = pos.y;
+        ctx.moveTo(lx, ly);
+        const segs = 4 + Math.floor(Math.random() * 3);
+        for (let s = 0; s < segs; s++) {
+          lx += (Math.random() - 0.5) * 28;
+          ly += (Math.random() - 0.5) * 28;
+          ctx.lineTo(lx, ly);
+        }
+        ctx.strokeStyle = `rgba(120,200,255,${0.25 + Math.random() * 0.45})`;
+        ctx.lineWidth = 1 + Math.random() * 2;
+        ctx.stroke();
+      }
+      break;
+
+    case 'confetti':
+      // Confetti is triggered on finish, rendered separately
+      break;
+  }
+}
+
+function spawnConfetti(x, y) {
+  for (let i = 0; i < 40; i++) {
+    confettiParticles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 8,
+      vy: (Math.random() - 0.5) * 8 - 4,
+      size: 2 + Math.random() * 4,
+      color: `hsl(${Math.floor(Math.random() * 360)}, 85%, 60%)`,
+      life: 1.0,
+      rot: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.3
+    });
+  }
+}
+
+function updateConfetti(ctx) {
+  for (let i = confettiParticles.length - 1; i >= 0; i--) {
+    const c = confettiParticles[i];
+    c.x += c.vx;
+    c.y += c.vy;
+    c.vy += 0.15;
+    c.life -= 0.015;
+    c.rot += c.rotSpeed;
+    if (c.life <= 0) { confettiParticles.splice(i, 1); continue; }
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.globalAlpha = c.life;
+    ctx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ============ RENDERING ============
+function gameLoop() {
+  gameTime++;
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const rawScale = canvas.width / WORLD_WIDTH;
+  const scale = Math.min(rawScale, 1.4);
+  const offsetX = (canvas.width - WORLD_WIDTH * scale) / 2;
+
+  // Anti-stuck
+  if (gameState === 'playing') {
+    players.forEach(p => {
+      if (p.finished || !p.ball) return;
+      const v = p.ball.velocity;
+      const speed = Math.sqrt(v.x * v.x + v.y * v.y);
+      if (!p._stuckTimer) p._stuckTimer = 0;
+      if (speed < 0.3) {
+        p._stuckTimer++;
+        if (p._stuckTimer > 40) {
+          Matter.Body.applyForce(p.ball, p.ball.position,
+            { x: (Math.random() - 0.5) * 0.004, y: 0.004 });
+          p._stuckTimer = 0;
+        }
+      } else {
+        p._stuckTimer = 0;
+      }
+    });
+    botBoosts();
+  }
+
+  // Animate obstacles
+  courseObstacles.forEach(obs => {
+    if (obs.spinning && obs.body) {
+      Matter.Body.setAngle(obs.body, obs.body.angle + obs.spinSpeed);
+    }
+    if (obs.orbital && obs.body) {
+      obs.orbitBaseAngle += obs.orbitSpeed;
+      const a = obs.orbitBaseAngle;
+      Matter.Body.setPosition(obs.body, {
+        x: obs.orbitCenter.x + Math.cos(a) * obs.orbitRadius,
+        y: obs.orbitCenter.y + Math.sin(a) * obs.orbitRadius
+      });
+      Matter.Body.setAngle(obs.body, a + Math.PI / 2);
+    }
+    if (obs.sliding && obs.body) {
+      const offset = Math.sin(gameTime * obs.slideSpeed) * obs.slideRange;
+      Matter.Body.setPosition(obs.body, { x: obs.slideBaseX + offset, y: obs.body.position.y });
+    }
+  });
+
+  // Rotate opening circle
+  if (!circleOpen && circleWallsRef.length > 0) {
+    circleAngle += 0.02;
+    circleWallsRef.forEach(w => {
+      const a = w._baseAngle + circleAngle;
+      Matter.Body.setPosition(w, {
+        x: circleCenter.x + Math.cos(a) * circleRadiusRef,
+        y: circleCenter.y + Math.sin(a) * circleRadiusRef
+      });
+      Matter.Body.setAngle(w, a + Math.PI / 2);
+    });
+  }
+
+  // Camera
+  if (gameState === 'playing' || gameState === 'finished') {
+    let leadY = -Infinity;
+    balls.forEach(b => { if (b.position.y > leadY) leadY = b.position.y; });
+    targetCameraY = leadY - canvas.height / scale * 0.35 + cameraManual;
+  }
+  cameraY += (targetCameraY - cameraY) * 0.3;
+
+  ctx.save();
+  ctx.translate(offsetX, 0);
+  ctx.scale(scale, scale);
+  ctx.translate(0, -cameraY);
+
+  // Background
+  const skyTop = cameraY;
+  ctx.fillStyle = '#1a1e2e';
+  ctx.fillRect(-offsetX / scale - 10, skyTop, WORLD_WIDTH + offsetX * 2 / scale + 20, canvas.height / scale);
+
+  // Draw obstacles
+  courseObstacles.forEach(obs => {
+    if (obs.type === 'finish') { drawFinishLine(ctx, obs.y); return; }
+    if (obs.body) drawObstacle(ctx, obs);
+  });
+
+  // Opening circle decoration
+  if (cameraY < 300) {
+    ctx.save();
+    ctx.translate(WORLD_WIDTH / 2, 150);
+    ctx.rotate(circleAngle);
+    ctx.beginPath();
+    ctx.arc(0, 0, 105, 0, Math.PI * 2);
+    ctx.lineWidth = 22;
+    ctx.strokeStyle = '#3a4a6e';
+    ctx.stroke();
+    for (let t = 0; t < 12; t++) {
+      const a = (t / 12) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 90, Math.sin(a) * 90);
+      ctx.lineTo(Math.cos(a) * 118, Math.sin(a) * 118);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#2d2d4e';
+      ctx.stroke();
+    }
+    if (circleOpen) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 105, Math.PI * 0.35, Math.PI * 1.65);
+      ctx.lineWidth = 26;
+      ctx.strokeStyle = '#1a1e2e';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Boost effects
+  for (let i = boostEffects.length - 1; i >= 0; i--) {
+    const e = boostEffects[i];
+    e.life -= 0.04;
+    if (e.life <= 0) { boostEffects.splice(i, 1); continue; }
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 30 * (1 - e.life), 0, Math.PI * 2);
+    ctx.strokeStyle = e.color + Math.floor(e.life * 200).toString(16).padStart(2, '0');
+    ctx.lineWidth = 3 * e.life;
+    ctx.stroke();
+  }
+
+  // Draw balls
+  players.forEach((p, i) => {
+    if (!p.ball) return;
+    const pos = p.ball.position;
+    const isYou = i === selectedPlayer;
+
+    // Trail
+    if (!p.trail) p.trail = [];
+    if (gameState === 'playing' || gameState === 'countdown') {
+      p.trail.push({ x: pos.x, y: pos.y });
+      if (p.trail.length > TRAIL_LENGTH) p.trail.shift();
+    }
+
+    // Equipped effect (rendered BEFORE default trail for rainbow override)
+    const hasRainbow = isYou && gameData.equippedEffect === 'rainbow';
+
+    if (!hasRainbow && p.trail.length > 2) {
+      for (let t = 1; t < p.trail.length; t++) {
+        const alpha = (t / p.trail.length) * 0.6;
+        const width = (t / p.trail.length) * BALL_RADIUS * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(p.trail[t - 1].x, p.trail[t - 1].y);
+        ctx.lineTo(p.trail[t].x, p.trail[t].y);
+        ctx.strokeStyle = p.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+        ctx.lineWidth = width;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      }
+      // Trail glow
+      ctx.beginPath();
+      for (let t = Math.max(0, p.trail.length - 8); t < p.trail.length; t++) {
+        if (t === Math.max(0, p.trail.length - 8)) ctx.moveTo(p.trail[t].x, p.trail[t].y);
+        else ctx.lineTo(p.trail[t].x, p.trail[t].y);
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = BALL_RADIUS * 0.6;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    // Render equipped effect for player
+    if (isYou && gameData.equippedEffect) {
+      renderEquippedEffect(ctx, p, pos, gameData.equippedEffect);
+    }
+
+    // YOUR ball highlight ring
+    if (isYou) {
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, BALL_RADIUS * 1.6, 0, Math.PI * 2);
+      ctx.strokeStyle = '#2979FF';
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 0.5 + Math.sin(gameTime * 0.1) * 0.3;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Arrow above
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y - BALL_RADIUS * 1.8 - 8);
+      ctx.lineTo(pos.x - 5, pos.y - BALL_RADIUS * 1.8 - 14);
+      ctx.lineTo(pos.x + 5, pos.y - BALL_RADIUS * 1.8 - 14);
+      ctx.closePath();
+      ctx.fillStyle = '#2979FF';
+      ctx.globalAlpha = 0.6 + Math.sin(gameTime * 0.15) * 0.3;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Ball rendering: circular avatar for all players
+    {
+      const avatarR = BALL_RADIUS * 1.25;
+      const useTg = isYou && tgAvatarImg && tgAvatarImg.complete && tgAvatarImg.naturalWidth > 0;
+      const avImg = useTg ? tgAvatarImg : (p.avatarKey ? avatarImages[p.avatarKey] : null);
+      if (avImg && avImg.complete) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, avatarR, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(avImg, pos.x - avatarR, pos.y - avatarR, avatarR * 2, avatarR * 2);
+        ctx.restore();
+      } else {
+        // Fallback: colored circle with initial
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, avatarR, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        ctx.font = `bold ${BALL_RADIUS}px sans-serif`;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.name[0].toUpperCase(), pos.x, pos.y);
+      }
+      // Colored ring
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, avatarR, 0, Math.PI * 2);
+      ctx.strokeStyle = isYou ? '#2979FF' : 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = isYou ? 2.5 : 1.5;
+      ctx.stroke();
+    }
+
+    // Name tag
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillStyle = isYou ? '#2979FF' : '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(isYou ? '⚡ YOU' : p.name, pos.x, pos.y - BALL_RADIUS * 1.5 - 6);
+  });
+
+  // Confetti particles
+  if (confettiParticles.length > 0) updateConfetti(ctx);
+
+  ctx.restore();
+
+  updateHUD();
+  checkFinish();
+
+  if (gameState !== 'lobby') {
+    animFrame = requestAnimationFrame(gameLoop);
+  }
+}
+
+function drawObstacle(ctx, obs) {
+  const body = obs.body;
+
+  if (obs.type === 'circle') {
+    ctx.beginPath();
+    ctx.arc(body.position.x, body.position.y, obs.radius || body.circleRadius, 0, Math.PI * 2);
+    ctx.fillStyle = '#3a4a6e';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(body.position.x - 3, body.position.y - 3, (obs.radius || body.circleRadius) * 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fill();
+    return;
+  }
+
+  const verts = body.vertices;
+  ctx.beginPath();
+  ctx.moveTo(verts[0].x, verts[0].y);
+  for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = obs.isWall ? '#2a3450' : '#3a4a6e';
+  ctx.fill();
+}
+
+function drawFinishLine(ctx, y) {
+  const tileSize = 15;
+  const rows = 3;
+  const cols = Math.ceil(WORLD_WIDTH / tileSize);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? '#1a1a2e' : '#ffffff';
+      ctx.fillRect(c * tileSize, y + r * tileSize, tileSize, tileSize);
+    }
+  }
+  ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#FFD700';
+  ctx.strokeStyle = '#3a4a6e';
+  ctx.lineWidth = 3;
+  ctx.strokeText('FINISH', WORLD_WIDTH / 2, y - 10);
+  ctx.fillText('FINISH', WORLD_WIDTH / 2, y - 10);
+}
+
+function updateHUD() {
+  const hud = document.getElementById('hud');
+  if (gameState !== 'playing' && gameState !== 'finished') { hud.style.display = 'none'; return; }
+  hud.style.display = 'flex';
+
+  const sorted = [...players].sort((a, b) => {
+    if (a.finished && b.finished) return a.place - b.place;
+    if (a.finished) return -1;
+    if (b.finished) return 1;
+    return b.ball.position.y - a.ball.position.y;
+  });
+
+  hud.innerHTML = sorted.map((p, i) => {
+    const isYou = players.indexOf(p) === selectedPlayer;
+    const useTg = isYou && tgUser?.photo_url;
+    const avatarHtml = useTg
+      ? `<img class="hud-avatar" src="${tgUser.photo_url}" crossorigin="anonymous">`
+      : `<div class="hud-circle" style="background:${p.color}">${p.name[0]}</div>`;
+    return `<div class="hud-player ${isYou ? 'is-you' : ''}">
+      <span class="pos">#${i + 1}</span>
+      ${avatarHtml}
+    </div>`;
+  }).join('');
+}
+
+function checkFinish() {
+  if (gameState !== 'playing') return;
+  const finishObs = courseObstacles.find(o => o.type === 'finish');
+  if (!finishObs) return;
+
+  players.forEach((p, i) => {
+    if (p.finished) return;
+    if (p.ball.position.y >= finishObs.y) {
+      p.finished = true;
+      finishOrder.push(i);
+      p.place = finishOrder.length;
+      Matter.Body.setStatic(p.ball, true);
+
+      // Confetti effect on player finish
+      if (i === selectedPlayer && gameData.equippedEffect === 'confetti' && !playerFinishedEffect) {
+        spawnConfetti(p.ball.position.x, p.ball.position.y);
+        playerFinishedEffect = true;
+      }
+    }
+  });
+
+  if (finishOrder.length === players.length) {
+    gameState = 'finished';
+    setTimeout(showResults, 800);
+  }
+  if (finishOrder.length > 0 && finishOrder.length < players.length && !window._finishTimeout) {
+    window._finishTimeout = setTimeout(() => {
+      players.forEach((p, i) => {
+        if (!p.finished) {
+          p.finished = true;
+          finishOrder.push(i);
+          p.place = finishOrder.length;
+          if (p.ball) Matter.Body.setStatic(p.ball, true);
+        }
+      });
+      gameState = 'finished';
+      showResults();
+    }, 8000);
+  }
+}
+
+// ============ RESULTS + PAYOUTS ============
+function showResults() {
+  const results = document.getElementById('results');
+  results.style.display = 'flex';
+  document.getElementById('boost-hud').style.display = 'none';
+
+  const myPlace = players[selectedPlayer].place;
+
+  // Payout
+  const { payout, netGain } = calculatePayout();
+  addCoins(payout);
+
+  if (myPlace === 1) {
+    gameData.totalWins++;
+    saveState();
+  }
+
+  // Title
+  const titles = ['', '🏆 You Won!', '🥈 2nd Place!', '🥉 Almost!'];
+  document.getElementById('resultsTitle').textContent =
+    myPlace <= 3 ? titles[myPlace] : `#${myPlace} — Next time!`;
+
+  // Payout display
+  const payoutEl = document.getElementById('payoutDisplay');
+  if (netGain >= 0) {
+    payoutEl.className = 'payout-display positive';
+    payoutEl.textContent = `+${payout} 🪙`;
+  } else {
+    payoutEl.className = 'payout-display negative';
+    payoutEl.textContent = `${netGain} 🪙`;
+  }
+
+  // Places list
+  const medals = ['🥇', '🥈', '🥉', '4', '5', '6', '7', '8'];
+  const list = document.getElementById('placesList');
+  list.innerHTML = '';
+
+  finishOrder.forEach((pIdx, place) => {
+    const p = players[pIdx];
+    const isYou = pIdx === selectedPlayer;
+    const useTg = isYou && tgUser?.photo_url;
+    const div = document.createElement('div');
+    div.className = 'place' + (isYou ? ' your-place' : '');
+    const avatarHtml = useTg
+      ? `<img src="${tgUser.photo_url}" style="width:36px;height:36px;border-radius:50%;border:2px solid #2979FF;object-fit:cover" crossorigin="anonymous">`
+      : `<div style="width:36px;height:36px;border-radius:50%;background:${p.color};display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:16px;flex-shrink:0">${p.name[0]}</div>`;
+    div.innerHTML = `
+      <span class="medal">${medals[place]}</span>
+      ${avatarHtml}
+      <span class="pname">${p.name}${isYou ? ' <small>(YOU)</small>' : ''}</span>
+    `;
+    list.appendChild(div);
+  });
+
+  // Rewarded ad
+  const rewardBtn = document.getElementById('rewardBtn');
+  rewardBtn.style.display = 'block';
+  rewardBtn.disabled = false;
+  rewardBtn.textContent = '📺 Watch Ad = +30 🪙';
+
+  // Low coins hint
+  document.getElementById('lowCoinsHint').style.display = gameData.coins < 10 ? 'block' : 'none';
+}
+
+// ============ REWARDED VIDEO (SIMULATED) ============
+function watchAd() {
+  const btn = document.getElementById('rewardBtn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Watching...';
+  let countdown = 3;
+  const interval = setInterval(() => {
+    countdown--;
+    btn.textContent = `⏳ ${countdown}s...`;
+    if (countdown <= 0) {
+      clearInterval(interval);
+      addCoins(30);
+      btn.textContent = '✅ +30 🪙 claimed!';
+    }
+  }, 1000);
+}
+
+// ============ INTERSTITIAL (SIMULATED) ============
+function showInterstitial(callback) {
+  const overlay = document.getElementById('interstitial');
+  overlay.style.display = 'flex';
+  let sec = 3;
+  const timerEl = document.getElementById('interstitialTimer');
+  timerEl.textContent = `${sec}s`;
+  const interval = setInterval(() => {
+    sec--;
+    timerEl.textContent = `${sec}s`;
+    if (sec <= 0) {
+      clearInterval(interval);
+      overlay.style.display = 'none';
+      callback();
+    }
+  }, 1000);
+}
+
+// ============ RESTART ============
+function restart() {
+  if (runner) Matter.Runner.stop(runner);
+  if (engine) Matter.Engine.clear(engine);
+  if (animFrame) cancelAnimationFrame(animFrame);
+
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('boost-hud').style.display = 'none';
+
+  gameState = 'lobby';
+  balls = [];
+  courseObstacles = [];
+  players.forEach(p => { if (p) p.trail = []; });
+  circleWallsRef = [];
+  circleOpen = false;
+  circleAngle = 0;
+  cameraManual = 0;
+  boostEffects = [];
+  confettiParticles = [];
+  playerFinishedEffect = false;
+
+  // Reset betting
+  betAmount = 0;
+  botBets = [];
+  totalPot = 0;
+
+  // Interstitial every 3rd race
+  if (gameData.raceCount > 0 && gameData.raceCount % 3 === 0) {
+    showInterstitial(() => {
+      document.getElementById('lobby').style.display = 'flex';
+      initLobby();
+    });
+  } else {
+    document.getElementById('lobby').style.display = 'flex';
+    initLobby();
+  }
+}
+
+// ============ CONTROLS ============
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'playing' || gameState === 'finished' || gameState === 'countdown') {
+    if (e.key === 'ArrowUp') { cameraManual -= 80; e.preventDefault(); }
+    if (e.key === 'ArrowDown') { cameraManual += 80; e.preventDefault(); }
+  }
+});
+
+window.addEventListener('resize', () => {
+  const canvas = document.getElementById('gameCanvas');
+  if (canvas) { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+});
+</script>
+</body>
+</html>
