@@ -477,7 +477,11 @@ canvas { display: block; }
   </div>
 
   <div class="boost-hint"><span>⚡</span> You get 3 boosts per race — tap to dash!</div>
-  <button id="startBtn" onclick="startGame()">DROP!</button>
+  <div id="multiplayerBtns" style="display:flex; flex-direction:column; gap:8px; align-items:center; width:min(90vw,320px)">
+    <button id="quickPlayBtn" style="padding:16px 56px;border:none;border-radius:50px;background:#2979FF;color:#fff;font-size:18px;font-weight:800;cursor:pointer;letter-spacing:0.5px;width:100%" onclick="quickPlay()">QUICK PLAY</button>
+    <button id="createRoomBtn" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="createPrivateRoom()">Create Room</button>
+  </div>
+  <button id="startBtn" style="display:none" onclick="startGame()">DROP!</button>
 </div>
 
 <!-- Results -->
@@ -794,6 +798,18 @@ const MAX_BOOSTS = 3;
 const BOOST_FORCE = 0.008;
 const BOOST_COOLDOWN = 800;
 
+// ============ SEEDED PRNG ============
+function mulberry32(seed) {
+  return function() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+let rng = null; // initialized per race with seed
+let currentSeed = 0;
+
 // ============ STATE ============
 let players = [];
 let selectedPlayer = 0;
@@ -815,6 +831,333 @@ let circleOpen = false;
 let boostsLeft = MAX_BOOSTS;
 let lastBoostTime = 0;
 let boostEffects = [];
+
+// ============ MULTIPLAYER STATE ============
+const WS_BASE_URL = 'wss://ball-drop-server.kzkoffff.workers.dev';
+let isMultiplayer = false;
+let ws = null;
+let mySlot = -1;
+let roomSeed = 0;
+let roomId = '';
+let positionBroadcastCounter = 0;
+
+// ============ WEBSOCKET MANAGER ============
+function connectToQueue() {
+  if (!WS_BASE_URL) return;
+  isMultiplayer = true;
+  const name = tgUser?.first_name || 'Player';
+  const avatar = tgUser?.photo_url || '';
+  const initData = TG?.initData || '';
+  const url = `${WS_BASE_URL}/ws/quickplay?name=${encodeURIComponent(name)}&avatar=${encodeURIComponent(avatar)}&initData=${encodeURIComponent(initData)}`;
+  connectWS(url);
+}
+
+function connectToRoom(targetRoomId) {
+  if (!WS_BASE_URL) return;
+  isMultiplayer = true;
+  const name = tgUser?.first_name || 'Player';
+  const avatar = tgUser?.photo_url || '';
+  const initData = TG?.initData || '';
+  const url = `${WS_BASE_URL}/ws/room/${targetRoomId}?name=${encodeURIComponent(name)}&avatar=${encodeURIComponent(avatar)}&initData=${encodeURIComponent(initData)}`;
+  connectWS(url);
+}
+
+function connectWS(url) {
+  if (ws) { try { ws.close(); } catch {} }
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    console.log('[WS] Connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      handleServerMessage(msg);
+    } catch {}
+  };
+
+  ws.onclose = (event) => {
+    console.log('[WS] Closed:', event.code, event.reason);
+    ws = null;
+  };
+
+  ws.onerror = () => {
+    console.log('[WS] Error');
+  };
+}
+
+function handleServerMessage(msg) {
+  switch (msg.type) {
+    case 'room_joined':
+      roomId = msg.roomId;
+      if (msg.slot >= 0) {
+        // We're in the GameRoom — got our slot
+        mySlot = msg.slot;
+        roomSeed = msg.seed;
+        const playerName = tgUser?.first_name || 'You';
+        const playerColor = PLAYER_COLORS[mySlot];
+        fillSlot(mySlot, playerName, playerColor, true, 0);
+        selectedPlayer = mySlot;
+        (msg.players || []).forEach(p => {
+          fillSlot(p.slot, p.name, PLAYER_COLORS[p.slot], false, 0);
+        });
+        updateSearchStatus();
+        console.log('[WS] Joined room', roomId, 'slot', mySlot, 'seed', roomSeed);
+      } else {
+        // Redirect from matchmaking queue — reconnect to the actual room
+        console.log('[WS] Redirecting to room', roomId);
+        setTimeout(() => connectToRoom(roomId), 200);
+      }
+      break;
+
+    case 'player_joined': {
+      fillSlot(msg.slot, msg.name, PLAYER_COLORS[msg.slot], false, 0);
+      updateSearchStatus();
+      break;
+    }
+
+    case 'player_left':
+      if (players[msg.slot]) {
+        players[msg.slot] = null;
+        const slot = document.getElementById('slot-' + msg.slot);
+        if (slot) {
+          slot.className = 'ball-slot empty-slot';
+          slot.innerHTML = '';
+          slot.onclick = null;
+        }
+      }
+      // During race — handle remote disconnect
+      if (gameState === 'playing' && players[msg.slot]) {
+        // Already removed above
+      }
+      updateSearchStatus();
+      break;
+
+    case 'race_start':
+      // Server says GO — start the game
+      if (gameState === 'lobby' || gameState === 'countdown') {
+        startMultiplayerRace();
+      }
+      break;
+
+    case 'positions':
+      // Update remote player Y positions for interpolation
+      if (gameState !== 'playing') return;
+      (msg.players || []).forEach(p => {
+        if (p.slot === mySlot) return;
+        const player = players[p.slot];
+        if (player) {
+          player._remoteY = p.y;
+          player._remoteBoosts = p.boostsUsed;
+        }
+      });
+      break;
+
+    case 'player_finished':
+      if (msg.slot === mySlot) return; // We handle our own finish locally
+      if (players[msg.slot] && !players[msg.slot].finished) {
+        players[msg.slot].finished = true;
+        players[msg.slot].place = msg.place;
+        finishOrder.push(msg.slot);
+        // Freeze remote ball visually
+        if (players[msg.slot].ball) {
+          Matter.Body.setStatic(players[msg.slot].ball, true);
+        }
+      }
+      break;
+
+    case 'race_end':
+      // Server finalizes the race
+      if (gameState === 'playing' || gameState === 'finished') {
+        // Update finish order from server
+        finishOrder = msg.finishOrder.map(f => f.slot);
+        msg.finishOrder.forEach(f => {
+          if (players[f.slot]) {
+            players[f.slot].finished = true;
+            players[f.slot].place = f.place;
+            if (players[f.slot].ball) {
+              Matter.Body.setStatic(players[f.slot].ball, true);
+            }
+          }
+        });
+        gameState = 'finished';
+        setTimeout(showResults, 800);
+      }
+      break;
+
+    case 'queue_update':
+      document.getElementById('searchText').textContent = `${msg.count}/8 in queue...`;
+      break;
+
+    case 'error':
+      console.warn('[WS] Server error:', msg.message);
+      break;
+  }
+}
+
+function updateSearchStatus() {
+  const filled = players.filter(p => p !== null).length;
+  const searchStatus = document.getElementById('searchStatus');
+  const startBtn = document.getElementById('startBtn');
+
+  if (filled >= 8) {
+    searchStatus.innerHTML = '<div class="online-dot"></div><span>8 players ready</span>';
+    if (!isMultiplayer) {
+      startBtn.style.display = '';
+      document.getElementById('betSection').style.display = '';
+      updateBetDisplay();
+    }
+  } else {
+    document.getElementById('searchText').textContent = `${filled}/8 players found`;
+  }
+}
+
+function sendToServer(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function startMultiplayerRace() {
+  // Called when server sends race_start
+  // Deduct bet etc
+  if (betAmount > 0) {
+    if (gameData.coins < betAmount) { betAmount = 0; updateBetDisplay(); }
+    else { gameData.coins -= betAmount; saveState(); updateCoinDisplay(); }
+  }
+  generateBotBets();
+  gameData.totalRaces++;
+  gameData.raceCount++;
+  saveState();
+
+  if (tgUser && players[mySlot]) players[mySlot].name = tgUser.first_name || 'You';
+
+  document.getElementById('lobby').style.display = 'none';
+  gameState = 'countdown';
+  finishOrder = [];
+  boostsLeft = MAX_BOOSTS;
+  lastBoostTime = 0;
+  boostEffects = [];
+  confettiParticles = [];
+  playerFinishedEffect = false;
+  if (window._finishTimeout) { clearTimeout(window._finishTimeout); window._finishTimeout = null; }
+  balls = [];
+
+  const canvas = document.getElementById('gameCanvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  engine = Matter.Engine.create({
+    gravity: { x: 0, y: 0.75 },
+    positionIterations: 16, velocityIterations: 10, constraintIterations: 4
+  });
+  world = engine.world;
+
+  // Use server seed for deterministic course
+  courseObstacles = generateCourse(roomSeed);
+
+  courseObstacles.forEach(obs => {
+    if (obs.type === 'finish') return;
+    let body;
+    if (obs.type === 'rect') {
+      body = Matter.Bodies.rectangle(obs.x, obs.y, obs.w, obs.h, {
+        isStatic: true, angle: obs.angle || 0,
+        friction: obs.lowFriction ? 0.01 : 0.5,
+        frictionStatic: obs.lowFriction ? 0.01 : 0.8,
+        restitution: obs.lowFriction ? 0.15 : 0.25,
+        chamfer: (obs.isWall || obs.orbital) ? undefined : { radius: 8 }
+      });
+    } else if (obs.type === 'circle') {
+      body = Matter.Bodies.circle(obs.x, obs.y, obs.radius, {
+        isStatic: true,
+        friction: obs.bouncy ? 0.0 : 0.3,
+        restitution: obs.bouncy ? 1.2 : 0.6
+      });
+    }
+    if (body) { obs.body = body; Matter.Composite.add(world, body); }
+  });
+
+  // Opening circle
+  const circleSegments = 32;
+  const circleRadius = 100;
+  const circleCX = WORLD_WIDTH / 2;
+  const circleCY = 150;
+  circleWallsRef = [];
+  circleCenter = { x: circleCX, y: circleCY };
+  circleRadiusRef = circleRadius;
+  circleAngle = 0;
+  circleOpen = false;
+
+  for (let i = 0; i < circleSegments; i++) {
+    const angle = (i / circleSegments) * Math.PI * 2;
+    const x = circleCX + Math.cos(angle) * circleRadius;
+    const y = circleCY + Math.sin(angle) * circleRadius;
+    const wall = Matter.Bodies.rectangle(x, y, 14, 42, {
+      isStatic: true, angle: angle + Math.PI / 2, friction: 0.2, restitution: 0.3
+    });
+    wall._baseAngle = angle;
+    circleWallsRef.push(wall);
+    Matter.Composite.add(world, wall);
+  }
+
+  // Create balls — only physics for our slot, visual-only for remotes
+  const activePlayers = players.filter(p => p !== null);
+  players.forEach((p, i) => {
+    if (!p) return;
+    const angle = (i / 8) * Math.PI * 2;
+    const r = 20 + rng() * 30;
+    const x = circleCX + Math.cos(angle) * r;
+    const y = circleCY + Math.sin(angle) * r * 0.5 - 10;
+
+    if (i === mySlot) {
+      // Full physics ball for our player
+      const ball = Matter.Bodies.circle(x, y, BALL_RADIUS, {
+        restitution: 0.3, friction: 0.25, frictionAir: 0.02,
+        density: 0.002, slop: 0.01, label: `player_${i}`
+      });
+      balls.push(ball);
+      Matter.Composite.add(world, ball);
+      p.ball = ball;
+    } else {
+      // Ghost ball — no physics, just visual position tracking
+      const ghostBall = { position: { x, y }, velocity: { x: 0, y: 0 } };
+      balls.push(ghostBall);
+      p.ball = ghostBall;
+      p._remoteY = y;
+      p._displayY = y;
+    }
+    p.finished = false;
+    p.place = 0;
+    p.trail = [];
+    p.botBoostTimer = rng() * 300;
+  });
+
+  runner = Matter.Runner.create({ delta: 1000 / 120 });
+  Matter.Runner.run(runner, engine);
+
+  cameraY = 0; targetCameraY = 0; cameraManual = 0;
+  updateBoostHUD();
+
+  showCountdown(3, () => {
+    showCountdown(2, () => {
+      showCountdown(1, () => {
+        showCountdown('GO!', () => {
+          circleOpen = true;
+          circleWallsRef.forEach(w => {
+            try { Matter.Composite.remove(world, w); } catch(e) {}
+          });
+          circleWallsRef = [];
+          gameState = 'playing';
+          document.getElementById('boost-hud').style.display = 'flex';
+        });
+      });
+    });
+  });
+
+  document.getElementById('hud').style.display = 'flex';
+  gameLoop();
+}
 
 // Betting state
 let betAmount = 0;
@@ -896,7 +1239,6 @@ function initLobby() {
   document.getElementById('betSection').style.display = 'none';
 
   const searchStatus = document.getElementById('searchStatus');
-  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Finding opponents...</span>';
 
   // Create 8 empty slots
   for (let i = 0; i < 8; i++) {
@@ -907,33 +1249,11 @@ function initLobby() {
     grid.appendChild(slot);
   }
 
-  // Player always fills slot 0 first
-  const playerName = tgUser?.first_name || 'You';
-  const playerColor = PLAYER_COLORS[0];
-  fillSlot(0, playerName, playerColor, true, 100);
-
-  // Fill remaining slots with staggered delays (fake matchmaking)
-  let filled = 1;
-  for (let i = 1; i < 8; i++) {
-    const delay = 300 + Math.random() * 400 + i * 250;
-    const timer = setTimeout(() => {
-      fillSlot(i, names[i], PLAYER_COLORS[i], false, 0);
-      filled++;
-      document.getElementById('searchText').textContent = `${filled}/8 players found`;
-      if (filled === 8) {
-        // All players found
-        setTimeout(() => {
-          searchStatus.innerHTML = '<div class="online-dot"></div><span>8 players ready</span>';
-          startBtn.style.display = '';
-          document.getElementById('betSection').style.display = '';
-          updateBetDisplay();
-        }, 300);
-      }
-    }, delay);
-    lobbySearchTimers.push(timer);
-  }
-
+  // Multiplayer only — show buttons
+  searchStatus.innerHTML = '<span id="searchText" style="color:rgba(255,255,255,0.5)">Choose a mode</span>';
+  document.getElementById('multiplayerBtns').style.display = 'flex';
   selectedPlayer = 0;
+
   updateCoinDisplay();
 }
 
@@ -978,7 +1298,97 @@ function selectBall(idx) {
   updateBetDisplay();
 }
 
+// ============ MULTIPLAYER LOBBY FUNCTIONS ============
+function quickPlay() {
+  // Clear lobby, start searching via WS
+  isMultiplayer = true;
+  const grid = document.getElementById('ballGrid');
+  grid.innerHTML = '';
+  players = new Array(8).fill(null);
+  for (let i = 0; i < 8; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'ball-slot empty-slot';
+    slot.id = 'slot-' + i;
+    slot.innerHTML = '';
+    grid.appendChild(slot);
+  }
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('multiplayerBtns').style.display = 'none';
+  document.getElementById('betSection').style.display = 'none';
+  const searchStatus = document.getElementById('searchStatus');
+  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Searching for opponents...</span>';
+  connectToQueue();
+}
+
+function createPrivateRoom() {
+  if (!WS_BASE_URL) return;
+  isMultiplayer = true;
+  fetch(WS_BASE_URL + '/api/create-room', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      roomId = data.roomId;
+      // Show room code to user
+      const grid = document.getElementById('ballGrid');
+      grid.innerHTML = '';
+      players = new Array(8).fill(null);
+      for (let i = 0; i < 8; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'ball-slot empty-slot';
+        slot.id = 'slot-' + i;
+        slot.innerHTML = '';
+        grid.appendChild(slot);
+      }
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('multiplayerBtns').style.display = 'none';
+      document.getElementById('betSection').style.display = 'none';
+      const searchStatus = document.getElementById('searchStatus');
+      searchStatus.innerHTML = `<span id="searchText" style="font-size:16px;color:#FFD700">Room: ${roomId}</span>`;
+      // Share link via TG
+      if (TG && TG.switchInlineQuery) {
+        // Could share via TG, but for now just display code
+      }
+      connectToRoom(roomId);
+    })
+    .catch(() => {
+      alert('Failed to create room');
+    });
+}
+
+function joinRoomFromDeepLink() {
+  if (!WS_BASE_URL) return;
+  const startParam = TG?.initDataUnsafe?.start_param;
+  if (startParam && startParam.length >= 4) {
+    roomId = startParam;
+    isMultiplayer = true;
+    // Clear lobby for multiplayer
+    const grid = document.getElementById('ballGrid');
+    grid.innerHTML = '';
+    players = new Array(8).fill(null);
+    for (let i = 0; i < 8; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'ball-slot empty-slot';
+      slot.id = 'slot-' + i;
+      slot.innerHTML = '';
+      grid.appendChild(slot);
+    }
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('multiplayerBtns').style.display = 'none';
+    document.getElementById('betSection').style.display = 'none';
+    const searchStatus = document.getElementById('searchStatus');
+    searchStatus.innerHTML = `<div class="search-spinner"></div><span id="searchText">Joining room ${roomId}...</span>`;
+    connectToRoom(roomId);
+  }
+}
+
 initLobby();
+
+// Check for deep link room invite
+setTimeout(() => {
+  const startParam = TG?.initDataUnsafe?.start_param;
+  if (startParam && startParam.length >= 4 && WS_BASE_URL) {
+    joinRoomFromDeepLink();
+  }
+}, 200);
 
 // Check daily bonus after a short delay
 setTimeout(checkDailyBonus, 500);
@@ -989,7 +1399,7 @@ function sectionSpinningCrosses(startY, W, sIdx) {
   const obstacles = [];
   const armLen = 150;
   const armThick = 28;
-  const spdBase = 0.06 * (0.9 + Math.random() * 0.2);
+  const spdBase = 0.06 * (0.9 + rng() * 0.2);
   const grid = [
     { x: W * 0.35, y: startY,         spd: -spdBase },
     { x: W * 0.65, y: startY + 40,    spd:  spdBase },
@@ -1053,7 +1463,7 @@ function sectionSpinningCircles(startY, W, sIdx) {
   const segs = 50;
   const segLen = (2 * Math.PI * cR / segs) + 8;
   const gapSize = 0.45;
-  const spdBase = 0.07 * (0.9 + Math.random() * 0.2);
+  const spdBase = 0.07 * (0.9 + rng() * 0.2);
   const positions = [
     { x: W * 0.20, y: startY,         gapA: Math.PI * 0.5, spd:  spdBase },
     { x: W * 0.80, y: startY + 230,   gapA: Math.PI * 0.5, spd: -spdBase },
@@ -1083,7 +1493,7 @@ function sectionFastCrosses(startY, W, sIdx) {
   const obstacles = [];
   const fastLen = 120;
   const fastThick = 18;
-  const spdBase = 0.14 * (0.9 + Math.random() * 0.2);
+  const spdBase = 0.14 * (0.9 + rng() * 0.2);
   const fastCrosses = [
     { x: W * 0.5,  y: startY + 20,    spd:  spdBase },
     { x: W * 0.30, y: startY + 100,   spd: -spdBase },
@@ -1106,7 +1516,7 @@ function sectionSlidingBars(startY, W, sIdx) {
   const gapX = 30;
   const rowGap = 46;
   const gridRows = 5;
-  const spdBase = 0.096 * (0.9 + Math.random() * 0.2);
+  const spdBase = 0.096 * (0.9 + rng() * 0.2);
   for (let r = 0; r < gridRows; r++) {
     const numBlocks = r % 2 === 0 ? 5 : 4;
     const totalW = numBlocks * blockW + (numBlocks - 1) * gapX;
@@ -1134,8 +1544,8 @@ function sectionUFunnel(startY, W, sIdx) {
 
   const crossSize = 320;
   const crossThick = 16;
-  const leftSpd = -0.055 * (0.9 + Math.random() * 0.2);
-  const rightSpd = 0.072 * (0.9 + Math.random() * 0.2);
+  const leftSpd = -0.055 * (0.9 + rng() * 0.2);
+  const rightSpd = 0.072 * (0.9 + rng() * 0.2);
   const lx = mid - uR * 0.52;
   const rx = mid + uR * 0.52;
   const crossYs = [startY + 50, startY + 190, startY + 330];
@@ -1243,7 +1653,7 @@ function sectionNarrowGaps(startY, W, sIdx) {
     if (r % 3 === 0) gapX = W * 0.25;
     else if (r % 3 === 1) gapX = W * 0.75;
     else gapX = W * 0.5;
-    gapX += (Math.random() - 0.5) * 40;
+    gapX += (rng() - 0.5) * 40;
 
     const leftW = gapX - gapW / 2;
     if (leftW > 10) {
@@ -1258,39 +1668,29 @@ function sectionNarrowGaps(startY, W, sIdx) {
   return { obstacles, height };
 }
 
-// ============ RANDOM COURSE GENERATION ============
-const SECTION_POOL = [
+// ============ COURSE GENERATION ============
+// Original fixed track — same order as before multiplayer
+const TRACK = [
   sectionSpinningCrosses,
   sectionTriangularSCurves,
   sectionSpinningCircles,
   sectionFastCrosses,
   sectionSlidingBars,
   sectionUFunnel,
-  sectionPlinkoField,
-  sectionBumperZone,
-  sectionNarrowGaps,
 ];
 
-function generateCourse() {
+function generateCourse(seed) {
+  // Initialize seeded PRNG (ensures identical obstacles across clients)
+  currentSeed = seed || Math.floor(Math.random() * 2147483647);
+  rng = mulberry32(currentSeed);
+
   const obstacles = [];
   const W = WORLD_WIDTH;
   let currentY = 400;
   const gap = 50;
 
-  const numSections = 5 + Math.floor(Math.random() * 3); // 5-7
-  const chosen = [];
-  let lastIdx = -1;
-  for (let i = 0; i < numSections; i++) {
-    let idx;
-    do {
-      idx = Math.floor(Math.random() * SECTION_POOL.length);
-    } while (idx === lastIdx);
-    chosen.push(idx);
-    lastIdx = idx;
-  }
-
-  chosen.forEach((idx, sIdx) => {
-    const section = SECTION_POOL[idx](currentY, W, sIdx);
+  TRACK.forEach((sectionFn, sIdx) => {
+    const section = sectionFn(currentY, W, sIdx);
     obstacles.push(...section.obstacles);
     currentY += section.height + gap;
   });
@@ -1308,6 +1708,17 @@ function generateCourse() {
 
 // ============ GAME ENGINE ============
 function startGame() {
+  isMultiplayer = false;
+  mySlot = -1;
+
+  // Fill empty slots with bots (for solo play when multiplayer UI is available)
+  const names = shuffleNames();
+  for (let i = 0; i < 8; i++) {
+    if (players[i] === null) {
+      fillSlot(i, names[i], PLAYER_COLORS[i], false, 0);
+    }
+  }
+
   // Validate and deduct bet
   if (betAmount > 0) {
     if (gameData.coins < betAmount) {
@@ -1407,7 +1818,7 @@ function startGame() {
   // Create player balls
   players.forEach((p, i) => {
     const angle = (i / players.length) * Math.PI * 2;
-    const r = 20 + Math.random() * 30;
+    const r = 20 + rng() * 30;
     const x = circleCX + Math.cos(angle) * r;
     const y = circleCY + Math.sin(angle) * r * 0.5 - 10;
 
@@ -1422,7 +1833,7 @@ function startGame() {
     p.finished = false;
     p.place = 0;
     p.trail = [];
-    p.botBoostTimer = Math.random() * 300;
+    p.botBoostTimer = rng() * 300;
   });
 
   runner = Matter.Runner.create({ delta: 1000 / 120 });
@@ -1476,21 +1887,22 @@ function handleTap(e) {
   const now = Date.now();
   if (now - lastBoostTime < BOOST_COOLDOWN) return;
 
-  const playerBall = players[selectedPlayer].ball;
-  if (!playerBall || players[selectedPlayer].finished) return;
+  const myIdx = isMultiplayer ? mySlot : selectedPlayer;
+  const myPlayer = players[myIdx];
+  if (!myPlayer || !myPlayer.ball || myPlayer.finished) return;
 
   const hForce = (Math.random() - 0.5) * 0.004;
-  Matter.Body.applyForce(playerBall, playerBall.position, { x: hForce, y: BOOST_FORCE });
+  Matter.Body.applyForce(myPlayer.ball, myPlayer.ball.position, { x: hForce, y: BOOST_FORCE });
 
   // Visual spin on boost (clockwise)
-  players[selectedPlayer].spinSpeed += 0.35;
+  myPlayer.spinSpeed += 0.35;
 
   boostsLeft--;
   lastBoostTime = now;
 
   boostEffects.push({
-    x: playerBall.position.x, y: playerBall.position.y,
-    life: 1.0, color: players[selectedPlayer].color
+    x: myPlayer.ball.position.x, y: myPlayer.ball.position.y,
+    life: 1.0, color: myPlayer.color
   });
 
   const touch = e.touches ? e.touches[0] : e;
@@ -1501,6 +1913,11 @@ function handleTap(e) {
   flash.style.width = flash.style.height = '60px';
   document.body.appendChild(flash);
   setTimeout(() => flash.remove(), 400);
+
+  // Notify server about boost in multiplayer
+  if (isMultiplayer) {
+    sendToServer({ type: 'boost' });
+  }
 
   updateBoostHUD();
 }
@@ -1515,7 +1932,7 @@ function updateBoostHUD() {
 // Bot boosts
 function botBoosts() {
   players.forEach((p, i) => {
-    if (i === selectedPlayer || p.finished || !p.ball) return;
+    if (!p || i === selectedPlayer || p.finished || !p.ball) return;
     p.botBoostTimer--;
     if (p.botBoostTimer <= 0) {
       const hForce = (Math.random() - 0.5) * 0.003;
@@ -1656,10 +2073,24 @@ function gameLoop() {
   const scale = Math.min(rawScale, 1.4);
   const offsetX = (canvas.width - WORLD_WIDTH * scale) / 2;
 
-  // Anti-stuck
+  // Anti-stuck & remote ball updates
   if (gameState === 'playing') {
-    players.forEach(p => {
-      if (p.finished || !p.ball) return;
+    players.forEach((p, i) => {
+      if (!p || p.finished || !p.ball) return;
+
+      // In multiplayer, only process physics for our ball
+      if (isMultiplayer && i !== mySlot) {
+        // Interpolate remote ball Y position (ghost rendering)
+        if (p._remoteY !== undefined) {
+          if (!p._displayY) p._displayY = p._remoteY;
+          p._displayY += (p._remoteY - p._displayY) * 0.15;
+          p.ball.position.y = p._displayY;
+          // Keep X centered-ish (we only relay Y)
+        }
+        return;
+      }
+
+      // Anti-stuck for local ball
       const v = p.ball.velocity;
       const speed = Math.sqrt(v.x * v.x + v.y * v.y);
       if (!p._stuckTimer) p._stuckTimer = 0;
@@ -1674,7 +2105,27 @@ function gameLoop() {
         p._stuckTimer = 0;
       }
     });
-    botBoosts();
+
+    // Bot boosts only in solo mode
+    if (!isMultiplayer) {
+      botBoosts();
+    }
+
+    // Broadcast our position to server (~20Hz = every 6 frames at 120Hz)
+    if (isMultiplayer) {
+      positionBroadcastCounter++;
+      if (positionBroadcastCounter >= 6) {
+        positionBroadcastCounter = 0;
+        const myPlayer = players[mySlot];
+        if (myPlayer && myPlayer.ball && !myPlayer.finished) {
+          sendToServer({
+            type: 'position',
+            y: myPlayer.ball.position.y,
+            boostsUsed: MAX_BOOSTS - boostsLeft,
+          });
+        }
+      }
+    }
   }
 
   // Animate obstacles
@@ -1777,9 +2228,9 @@ function gameLoop() {
 
   // Draw balls
   players.forEach((p, i) => {
-    if (!p.ball) return;
+    if (!p || !p.ball) return;
     const pos = p.ball.position;
-    const isYou = i === selectedPlayer;
+    const isYou = isMultiplayer ? i === mySlot : i === selectedPlayer;
 
     // Update spin (clockwise, decaying)
     if (p.spinSpeed) {
@@ -1957,15 +2408,18 @@ function updateHUD() {
   if (gameState !== 'playing' && gameState !== 'finished') { hud.style.display = 'none'; return; }
   hud.style.display = 'flex';
 
-  const sorted = [...players].sort((a, b) => {
+  const activePlayers = players.filter(p => p !== null);
+  const sorted = [...activePlayers].sort((a, b) => {
     if (a.finished && b.finished) return a.place - b.place;
     if (a.finished) return -1;
     if (b.finished) return 1;
+    if (!a.ball || !b.ball) return 0;
     return b.ball.position.y - a.ball.position.y;
   });
 
+  const myPlayerIdx = isMultiplayer ? mySlot : selectedPlayer;
   hud.innerHTML = sorted.map((p, i) => {
-    const isYou = players.indexOf(p) === selectedPlayer;
+    const isYou = players.indexOf(p) === myPlayerIdx;
     const useTg = isYou && tgUser?.photo_url;
     const avatarHtml = useTg
       ? `<img class="hud-avatar" src="${tgUser.photo_url}" crossorigin="anonymous">`
@@ -1982,15 +2436,37 @@ function checkFinish() {
   const finishObs = courseObstacles.find(o => o.type === 'finish');
   if (!finishObs) return;
 
+  if (isMultiplayer) {
+    // In multiplayer, only check OUR ball — server handles the rest
+    const myPlayer = players[mySlot];
+    if (myPlayer && !myPlayer.finished && myPlayer.ball && myPlayer.ball.position.y >= finishObs.y) {
+      myPlayer.finished = true;
+      finishOrder.push(mySlot);
+      myPlayer.place = finishOrder.length;
+      Matter.Body.setStatic(myPlayer.ball, true);
+
+      // Send finish to server
+      sendToServer({ type: 'finished', time: Date.now() });
+
+      // Confetti
+      if (gameData.equippedEffect === 'confetti' && !playerFinishedEffect) {
+        spawnConfetti(myPlayer.ball.position.x, myPlayer.ball.position.y);
+        playerFinishedEffect = true;
+      }
+    }
+    // race_end from server will trigger showResults
+    return;
+  }
+
+  // Solo mode — original logic
   players.forEach((p, i) => {
-    if (p.finished) return;
+    if (!p || p.finished) return;
     if (p.ball.position.y >= finishObs.y) {
       p.finished = true;
       finishOrder.push(i);
       p.place = finishOrder.length;
       Matter.Body.setStatic(p.ball, true);
 
-      // Confetti effect on player finish
       if (i === selectedPlayer && gameData.equippedEffect === 'confetti' && !playerFinishedEffect) {
         spawnConfetti(p.ball.position.x, p.ball.position.y);
         playerFinishedEffect = true;
@@ -1998,19 +2474,19 @@ function checkFinish() {
     }
   });
 
-  if (finishOrder.length === players.length) {
+  const activePlayers = players.filter(p => p !== null);
+  if (finishOrder.length === activePlayers.length) {
     gameState = 'finished';
     setTimeout(showResults, 800);
   }
-  if (finishOrder.length > 0 && finishOrder.length < players.length && !window._finishTimeout) {
+  if (finishOrder.length > 0 && finishOrder.length < activePlayers.length && !window._finishTimeout) {
     window._finishTimeout = setTimeout(() => {
       players.forEach((p, i) => {
-        if (!p.finished) {
-          p.finished = true;
-          finishOrder.push(i);
-          p.place = finishOrder.length;
-          if (p.ball) Matter.Body.setStatic(p.ball, true);
-        }
+        if (!p || p.finished) return;
+        p.finished = true;
+        finishOrder.push(i);
+        p.place = finishOrder.length;
+        if (p.ball) Matter.Body.setStatic(p.ball, true);
       });
       gameState = 'finished';
       showResults();
@@ -2024,7 +2500,8 @@ function showResults() {
   results.style.display = 'flex';
   document.getElementById('boost-hud').style.display = 'none';
 
-  const myPlace = players[selectedPlayer].place;
+  const myPlayerIdx = isMultiplayer ? mySlot : selectedPlayer;
+  const myPlace = players[myPlayerIdx] ? players[myPlayerIdx].place : finishOrder.length;
 
   // Payout
   const { payout, netGain } = calculatePayout();
@@ -2057,7 +2534,8 @@ function showResults() {
 
   finishOrder.forEach((pIdx, place) => {
     const p = players[pIdx];
-    const isYou = pIdx === selectedPlayer;
+    if (!p) return;
+    const isYou = pIdx === myPlayerIdx;
     const useTg = isYou && tgUser?.photo_url;
     const div = document.createElement('div');
     div.className = 'place' + (isYou ? ' your-place' : '');
@@ -2124,6 +2602,9 @@ function restart() {
   if (engine) Matter.Engine.clear(engine);
   if (animFrame) cancelAnimationFrame(animFrame);
 
+  // Close WebSocket if open
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+
   document.getElementById('results').style.display = 'none';
   document.getElementById('hud').style.display = 'none';
   document.getElementById('boost-hud').style.display = 'none';
@@ -2139,6 +2620,13 @@ function restart() {
   boostEffects = [];
   confettiParticles = [];
   playerFinishedEffect = false;
+  positionBroadcastCounter = 0;
+
+  // Reset multiplayer state
+  isMultiplayer = false;
+  mySlot = -1;
+  roomSeed = 0;
+  roomId = '';
 
   // Reset betting
   betAmount = 0;
