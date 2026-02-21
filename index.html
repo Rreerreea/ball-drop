@@ -834,6 +834,7 @@ let boostEffects = [];
 
 // ============ MULTIPLAYER STATE ============
 const WS_BASE_URL = 'wss://ball-drop-server.kzkoffff.workers.dev';
+const API_BASE_URL = 'https://ball-drop-server.kzkoffff.workers.dev';
 let isMultiplayer = false;
 let ws = null;
 let mySlot = -1;
@@ -1314,16 +1315,15 @@ function quickPlay() {
   }
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('multiplayerBtns').style.display = 'none';
-  document.getElementById('betSection').style.display = 'none';
   const searchStatus = document.getElementById('searchStatus');
-  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Searching for opponents...</span>';
+  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Searching for opponents...</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Back</button>';
   connectToQueue();
 }
 
 function createPrivateRoom() {
   if (!WS_BASE_URL) return;
   isMultiplayer = true;
-  fetch(WS_BASE_URL + '/api/create-room', { method: 'POST' })
+  fetch(API_BASE_URL + '/api/create-room', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
       roomId = data.roomId;
@@ -1340,9 +1340,8 @@ function createPrivateRoom() {
       }
       document.getElementById('startBtn').style.display = 'none';
       document.getElementById('multiplayerBtns').style.display = 'none';
-      document.getElementById('betSection').style.display = 'none';
       const searchStatus = document.getElementById('searchStatus');
-      searchStatus.innerHTML = `<span id="searchText" style="font-size:16px;color:#FFD700">Room: ${roomId}</span>`;
+      searchStatus.innerHTML = `<span id="searchText" style="font-size:16px;color:#FFD700">Room: ${roomId}</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Back</button>`;
       // Share link via TG
       if (TG && TG.switchInlineQuery) {
         // Could share via TG, but for now just display code
@@ -1352,6 +1351,15 @@ function createPrivateRoom() {
     .catch(() => {
       alert('Failed to create room');
     });
+}
+
+function leaveQueue() {
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  isMultiplayer = false;
+  mySlot = -1;
+  roomSeed = 0;
+  roomId = '';
+  initLobby();
 }
 
 function joinRoomFromDeepLink() {
