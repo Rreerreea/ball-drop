@@ -445,7 +445,10 @@ canvas { display: block; }
 
 <!-- Lobby -->
 <div id="lobby">
-  <h1>Шары</h1>
+  <!-- Back button (top-left, hidden by default) -->
+  <button id="backBtn" onclick="leaveQueue()" style="display:none;position:absolute;top:16px;left:16px;padding:8px 14px;border:1px solid rgba(255,255,255,0.15);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer;z-index:10">← Назад</button>
+
+  <h1 id="lobbyTitle">Шары</h1>
 
   <!-- Main menu cards -->
   <div id="menuCards" style="display:flex;flex-direction:column;gap:12px;width:min(90vw,340px)">
@@ -489,9 +492,11 @@ canvas { display: block; }
     <div class="bet-info" id="betInfo">Без ставки — получишь +5 за участие!</div>
   </div>
 
-  <div class="boost-hint" id="boostHint" style="display:none"><span>⚡</span> 3 ускорения за гонку — нажми чтобы ускориться!</div>
   <div id="readyBtnWrap" style="display:none;width:min(90vw,320px)">
     <button id="readyBtn" style="width:100%;padding:16px;border:none;border-radius:50px;background:#4CAF50;color:#fff;font-size:18px;font-weight:800;cursor:pointer" onclick="sendReady()">ГОТОВ</button>
+  </div>
+  <div id="inviteWrap" style="display:none;width:min(90vw,320px)">
+    <button onclick="shareRoom(document.getElementById('inviteWrap').getAttribute('data-room'))" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:50px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer">Пригласить друзей</button>
   </div>
   <button id="startBtn" style="display:none" onclick="startGame()">DROP!</button>
 </div>
@@ -967,6 +972,8 @@ function handleServerMessage(msg) {
     case 'race_start':
       // Server says GO — start the game
       document.getElementById('readyBtnWrap').style.display = 'none';
+      document.getElementById('inviteWrap').style.display = 'none';
+      document.getElementById('backBtn').style.display = 'none';
       if (gameState === 'lobby' || gameState === 'countdown') {
         startMultiplayerRace();
       }
@@ -1360,10 +1367,12 @@ function quickPlay() {
   }
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('menuCards').style.display = 'none';
+  document.getElementById('lobbyTitle').style.display = 'none';
   document.getElementById('readyBtnWrap').style.display = 'none';
+  document.getElementById('backBtn').style.display = 'block';
   const searchStatus = document.getElementById('searchStatus');
   searchStatus.style.display = '';
-  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Ищем соперников...</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Назад</button>';
+  searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Ищем соперников...</span>';
   connectToQueue();
 }
 
@@ -1398,16 +1407,17 @@ function enterRoomLobby(code) {
   }
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('menuCards').style.display = 'none';
+  document.getElementById('lobbyTitle').style.display = 'none';
   document.getElementById('readyBtnWrap').style.display = 'block';
-  document.getElementById('boostHint').style.display = 'flex';
+  // Back button top-left
+  document.getElementById('backBtn').style.display = 'block';
+  document.getElementById('backBtn').setAttribute('data-room', code);
+  // Invite button under ready
+  document.getElementById('inviteWrap').style.display = 'block';
+  document.getElementById('inviteWrap').setAttribute('data-room', code);
   const searchStatus = document.getElementById('searchStatus');
   searchStatus.style.display = '';
-  searchStatus.innerHTML = `
-    <span id="searchText" style="font-size:16px;color:#FFD700">Комната: ${code}</span><br>
-    <div style="display:flex;gap:6px;margin-top:8px;justify-content:center">
-      <button onclick="shareRoom('${code}')" style="padding:8px 16px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Пригласить</button>
-      <button onclick="leaveQueue()" style="padding:8px 16px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Назад</button>
-    </div>`;
+  searchStatus.innerHTML = `<span id="searchText" style="font-size:16px;color:#FFD700;font-weight:700">1/8 игроков</span>`;
 }
 
 function shareRoom(code) {
@@ -1448,8 +1458,10 @@ function leaveQueue() {
   roomSeed = 0;
   roomId = '';
   document.getElementById('readyBtnWrap').style.display = 'none';
+  document.getElementById('inviteWrap').style.display = 'none';
+  document.getElementById('backBtn').style.display = 'none';
   document.getElementById('ballGrid').style.display = 'none';
-  document.getElementById('boostHint').style.display = 'none';
+  document.getElementById('lobbyTitle').style.display = '';
   initLobby();
 }
 
@@ -2719,6 +2731,9 @@ function restart() {
   roomSeed = 0;
   roomId = '';
   document.getElementById('readyBtnWrap').style.display = 'none';
+  document.getElementById('inviteWrap').style.display = 'none';
+  document.getElementById('backBtn').style.display = 'none';
+  document.getElementById('lobbyTitle').style.display = '';
   const readyBtn = document.getElementById('readyBtn');
   readyBtn.textContent = 'ГОТОВ';
   readyBtn.style.background = '#4CAF50';
