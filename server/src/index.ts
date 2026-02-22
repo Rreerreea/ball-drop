@@ -93,7 +93,7 @@ export default {
             const roomCode = parts[1];
 
             if (roomCode) {
-              // Invite link — open game with room code
+              // Invite link — use regular url button (web_app doesn't pass params reliably)
               const gameUrl = `https://ball-drop.pages.dev?room=${roomCode}`;
               await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
@@ -103,7 +103,7 @@ export default {
                   text: `Тебя пригласили в Шары!\nКомната: ${roomCode}`,
                   reply_markup: {
                     inline_keyboard: [[
-                      { text: '🎮 Играть', web_app: { url: gameUrl } }
+                      { text: '🎮 Играть', url: gameUrl }
                     ]]
                   },
                 }),

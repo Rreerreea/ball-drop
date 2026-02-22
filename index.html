@@ -1204,8 +1204,23 @@ function startMultiplayerRace() {
     p.botBoostTimer = rng() * 300;
   });
 
-  runner = Matter.Runner.create({ delta: 1000 / 120 });
-  Matter.Runner.run(runner, engine);
+  // Use fixed timestep for consistent physics across devices
+  runner = { running: true };
+  let lastTime = performance.now();
+  const fixedDt = 1000 / 120;
+  let accumulator = 0;
+  function physicsLoop(now) {
+    if (!runner.running) return;
+    const elapsed = Math.min(now - lastTime, 100); // cap at 100ms to avoid spiral
+    lastTime = now;
+    accumulator += elapsed;
+    while (accumulator >= fixedDt) {
+      Matter.Engine.update(engine, fixedDt);
+      accumulator -= fixedDt;
+    }
+    requestAnimationFrame(physicsLoop);
+  }
+  requestAnimationFrame(physicsLoop);
 
   cameraY = 0; targetCameraY = 0; cameraManual = 0;
   updateBoostHUD();
@@ -1950,8 +1965,23 @@ function startGame() {
     p.botBoostTimer = rng() * 300;
   });
 
-  runner = Matter.Runner.create({ delta: 1000 / 120 });
-  Matter.Runner.run(runner, engine);
+  // Use fixed timestep for consistent physics across devices
+  runner = { running: true };
+  let lastTime = performance.now();
+  const fixedDt = 1000 / 120;
+  let accumulator = 0;
+  function physicsLoop(now) {
+    if (!runner.running) return;
+    const elapsed = Math.min(now - lastTime, 100); // cap at 100ms to avoid spiral
+    lastTime = now;
+    accumulator += elapsed;
+    while (accumulator >= fixedDt) {
+      Matter.Engine.update(engine, fixedDt);
+      accumulator -= fixedDt;
+    }
+    requestAnimationFrame(physicsLoop);
+  }
+  requestAnimationFrame(physicsLoop);
 
   cameraY = 0;
   targetCameraY = 0;
@@ -2712,7 +2742,7 @@ function showInterstitial(callback) {
 
 // ============ RESTART ============
 function restart() {
-  if (runner) Matter.Runner.stop(runner);
+  if (runner) runner.running = false;
   if (engine) Matter.Engine.clear(engine);
   if (animFrame) cancelAnimationFrame(animFrame);
 
