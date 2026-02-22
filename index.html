@@ -909,7 +909,24 @@ function handleServerMessage(msg) {
         selectedPlayer = mySlot;
         (msg.players || []).forEach(p => {
           fillSlot(p.slot, p.name, PLAYER_COLORS[p.slot], false, 0);
+          if (p.ready) {
+            const sl = document.getElementById('slot-' + p.slot);
+            if (sl) {
+              const rb = document.createElement('span');
+              rb.className = 'ready-badge';
+              rb.style.cssText = 'position:absolute;top:2px;right:2px;background:#4CAF50;color:#fff;font-size:9px;padding:2px 5px;border-radius:8px;font-weight:700';
+              rb.textContent = 'READY';
+              sl.style.position = 'relative';
+              sl.appendChild(rb);
+            }
+          }
         });
+        // Show ready button for all modes
+        document.getElementById('readyBtnWrap').style.display = 'block';
+        const readyBtn = document.getElementById('readyBtn');
+        readyBtn.textContent = 'READY';
+        readyBtn.style.background = '#4CAF50';
+        readyBtn.disabled = false;
         updateSearchStatus();
         console.log('[WS] Joined room', roomId, 'slot', mySlot, 'seed', roomSeed);
       } else {

@@ -22,7 +22,7 @@ interface PlayerSlot {
 }
 
 const MAX_PLAYERS = 8;
-const COUNTDOWN_MS = 3000;
+const COUNTDOWN_MS = 5000;
 const MAX_RACE_MS = 90_000;
 const AFTER_FIRST_FINISH_MS = 30_000;
 const POSITION_BROADCAST_INTERVAL = 100; // ~10Hz
@@ -148,11 +148,7 @@ export class GameRoom {
       avatarUrl: player.avatarUrl,
     }, ws);
 
-    // For matchmaking rooms, auto-ready all players
-    if (this.fromMatchmaking) {
-      player.ready = true;
-      this.checkAllReady();
-    }
+    // All players must manually ready up
   }
 
   private handleMessage(ws: WebSocket, msg: ClientMessage) {
@@ -289,9 +285,11 @@ export class GameRoom {
     this.roomState = 'COUNTDOWN';
 
     // Send countdown ticks
-    this.broadcast({ type: 'countdown', seconds: 3 });
-    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 2 }), 1000);
-    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 1 }), 2000);
+    this.broadcast({ type: 'countdown', seconds: 5 });
+    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 4 }), 1000);
+    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 3 }), 2000);
+    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 2 }), 3000);
+    setTimeout(() => this.broadcast({ type: 'countdown', seconds: 1 }), 4000);
 
     setTimeout(() => {
       this.startRace();
