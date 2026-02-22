@@ -880,8 +880,11 @@ function connectToRoom(targetRoomId) {
   connectWS(url);
 }
 
+let lastWsUrl = '';
+
 function connectWS(url) {
   if (ws) { try { ws.close(); } catch {} }
+  lastWsUrl = url;
   ws = new WebSocket(url);
 
   ws.onopen = () => {
@@ -904,6 +907,14 @@ function connectWS(url) {
     console.log('[WS] Error');
   };
 }
+
+// Reconnect when app resumes (after sharing/minimizing)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && isMultiplayer && !ws && roomId && gameState === 'lobby') {
+    console.log('[WS] Reconnecting after resume...');
+    connectToRoom(roomId);
+  }
+});
 
 function handleServerMessage(msg) {
   switch (msg.type) {
@@ -1383,8 +1394,6 @@ function createPrivateRoom() {
     .then(r => r.json())
     .then(data => {
       roomId = data.roomId;
-      // Show share screen first, then go to lobby
-      shareRoom(roomId);
       enterRoomLobby(roomId);
       connectToRoom(roomId);
     })
@@ -1482,9 +1491,11 @@ initLobby();
 setTimeout(() => {
   const startParam = TG?.initDataUnsafe?.start_param;
   const urlRoom = new URLSearchParams(window.location.search).get('room');
-  const hashRoom = new URLSearchParams(window.location.hash.replace('#','?')).get('room');
-  const code = startParam || urlRoom || hashRoom;
-  console.log('[Room] start_param:', startParam, 'urlRoom:', urlRoom, 'hashRoom:', hashRoom, 'code:', code);
+  const hashParams = window.location.hash ? new URLSearchParams(window.location.hash.substring(1)) : null;
+  const hashRoom = hashParams?.get('room');
+  const tgStartParam = hashParams?.get('tgWebAppStartParam');
+  const code = startParam || urlRoom || hashRoom || tgStartParam;
+  console.log('[Room] sources:', { startParam, urlRoom, hashRoom, tgStartParam, search: window.location.search, hash: window.location.hash });
   if (code && code.length >= 4 && WS_BASE_URL) {
     roomId = code;
     isMultiplayer = true;

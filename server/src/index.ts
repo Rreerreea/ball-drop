@@ -91,25 +91,39 @@ export default {
           if (text.startsWith('/start')) {
             const parts = text.split(' ');
             const roomCode = parts[1];
-            const webAppUrl = 'https://ball-drop.pages.dev' + (roomCode ? `?room=${roomCode}#room=${roomCode}` : '');
 
-            const keyboard = roomCode
-              ? { inline_keyboard: [[{ text: 'Join Game', web_app: { url: webAppUrl } }]] }
-              : { inline_keyboard: [[{ text: 'Play', web_app: { url: 'https://ball-drop.pages.dev' } }]] };
-
-            const msgText = roomCode
-              ? `You've been invited to Ball Drop Race!\nRoom: ${roomCode}`
-              : 'Welcome to Ball Drop Race!';
-
-            await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                chat_id: chatId,
-                text: msgText,
-                reply_markup: keyboard,
-              }),
-            });
+            if (roomCode) {
+              // Invite link — open game with room code
+              const gameUrl = `https://ball-drop.pages.dev?room=${roomCode}`;
+              await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: `Тебя пригласили в Шары!\nКомната: ${roomCode}`,
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: '🎮 Играть', web_app: { url: gameUrl } }
+                    ]]
+                  },
+                }),
+              });
+            } else {
+              // Regular /start — open game
+              await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: 'Добро пожаловать в Шары!',
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: '🎮 Играть', web_app: { url: 'https://ball-drop.pages.dev' } }
+                    ]]
+                  },
+                }),
+              });
+            }
           }
         }
       } catch {}
