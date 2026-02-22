@@ -78,6 +78,42 @@ export default {
       });
     }
 
+    // Telegram Bot Webhook
+    if (url.pathname === '/bot/webhook' && request.method === 'POST') {
+      try {
+        const update = await request.json() as any;
+        if (update.message?.text) {
+          const text = update.message.text as string;
+          const chatId = update.message.chat.id;
+
+          if (text.startsWith('/start')) {
+            const parts = text.split(' ');
+            const roomCode = parts[1];
+            const webAppUrl = 'https://ball-drop.pages.dev' + (roomCode ? `?room=${roomCode}` : '');
+
+            const keyboard = roomCode
+              ? { inline_keyboard: [[{ text: 'Join Game', web_app: { url: webAppUrl } }]] }
+              : { inline_keyboard: [[{ text: 'Play', web_app: { url: 'https://ball-drop.pages.dev' } }]] };
+
+            const msgText = roomCode
+              ? `You've been invited to Ball Drop Race!\nRoom: ${roomCode}`
+              : 'Welcome to Ball Drop Race!';
+
+            await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: msgText,
+                reply_markup: keyboard,
+              }),
+            });
+          }
+        }
+      } catch {}
+      return new Response('ok', { headers: corsHeaders });
+    }
+
     // Health check
     if (url.pathname === '/health') {
       return new Response('OK', { headers: corsHeaders });

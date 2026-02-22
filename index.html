@@ -1444,11 +1444,16 @@ function joinRoomFromDeepLink() {
 
 initLobby();
 
-// Check for deep link room invite
+// Check for deep link room invite (TG start_param or ?room= URL param)
 setTimeout(() => {
   const startParam = TG?.initDataUnsafe?.start_param;
-  if (startParam && startParam.length >= 4 && WS_BASE_URL) {
-    joinRoomFromDeepLink();
+  const urlRoom = new URLSearchParams(window.location.search).get('room');
+  const code = startParam || urlRoom;
+  if (code && code.length >= 4 && WS_BASE_URL) {
+    roomId = code;
+    isMultiplayer = true;
+    enterRoomLobby(code);
+    connectToRoom(code);
   }
 }, 200);
 
