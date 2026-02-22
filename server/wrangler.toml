@@ -1,0 +1,14 @@
+name = "ball-drop-server"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[durable_objects]
+bindings = [
+  { name = "GAME_ROOM", class_name = "GameRoom" },
+  { name = "MATCHMAKING", class_name = "MatchmakingQueue" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom", "MatchmakingQueue"]
+

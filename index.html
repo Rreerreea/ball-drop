@@ -480,6 +480,13 @@ canvas { display: block; }
   <div id="multiplayerBtns" style="display:flex; flex-direction:column; gap:8px; align-items:center; width:min(90vw,320px)">
     <button id="quickPlayBtn" style="padding:16px 56px;border:none;border-radius:50px;background:#2979FF;color:#fff;font-size:18px;font-weight:800;cursor:pointer;letter-spacing:0.5px;width:100%" onclick="quickPlay()">QUICK PLAY</button>
     <button id="createRoomBtn" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="createPrivateRoom()">Create Room</button>
+    <div style="display:flex;gap:6px;width:100%">
+      <input id="joinRoomInput" type="text" placeholder="Room code" maxlength="6" style="flex:1;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;text-align:center;text-transform:uppercase;outline:none" />
+      <button style="padding:12px 18px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="joinRoomByCode()">Join</button>
+    </div>
+  </div>
+  <div id="readyBtnWrap" style="display:none;width:min(90vw,320px)">
+    <button id="readyBtn" style="width:100%;padding:16px;border:none;border-radius:50px;background:#4CAF50;color:#fff;font-size:18px;font-weight:800;cursor:pointer" onclick="sendReady()">READY</button>
   </div>
   <button id="startBtn" style="display:none" onclick="startGame()">DROP!</button>
 </div>
@@ -937,6 +944,7 @@ function handleServerMessage(msg) {
 
     case 'race_start':
       // Server says GO — start the game
+      document.getElementById('readyBtnWrap').style.display = 'none';
       if (gameState === 'lobby' || gameState === 'countdown') {
         startMultiplayerRace();
       }
@@ -985,6 +993,28 @@ function handleServerMessage(msg) {
         gameState = 'finished';
         setTimeout(showResults, 800);
       }
+      break;
+
+    case 'player_ready': {
+      const slot = document.getElementById('slot-' + msg.slot);
+      if (slot) {
+        const badge = slot.querySelector('.ready-badge');
+        if (!badge) {
+          const rb = document.createElement('span');
+          rb.className = 'ready-badge';
+          rb.style.cssText = 'position:absolute;top:2px;right:2px;background:#4CAF50;color:#fff;font-size:9px;padding:2px 5px;border-radius:8px;font-weight:700';
+          rb.textContent = 'READY';
+          slot.style.position = 'relative';
+          slot.appendChild(rb);
+        }
+      }
+      updateSearchStatus();
+      break;
+    }
+
+    case 'countdown':
+      // Show countdown in search status
+      document.getElementById('searchStatus').innerHTML = `<span style="font-size:48px;font-weight:900;color:#FFD700">${msg.seconds}</span>`;
       break;
 
     case 'queue_update':
@@ -1315,6 +1345,7 @@ function quickPlay() {
   }
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('multiplayerBtns').style.display = 'none';
+  document.getElementById('readyBtnWrap').style.display = 'none';
   const searchStatus = document.getElementById('searchStatus');
   searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Searching for opponents...</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Back</button>';
   connectToQueue();
@@ -1327,30 +1358,67 @@ function createPrivateRoom() {
     .then(r => r.json())
     .then(data => {
       roomId = data.roomId;
-      // Show room code to user
-      const grid = document.getElementById('ballGrid');
-      grid.innerHTML = '';
-      players = new Array(8).fill(null);
-      for (let i = 0; i < 8; i++) {
-        const slot = document.createElement('div');
-        slot.className = 'ball-slot empty-slot';
-        slot.id = 'slot-' + i;
-        slot.innerHTML = '';
-        grid.appendChild(slot);
-      }
-      document.getElementById('startBtn').style.display = 'none';
-      document.getElementById('multiplayerBtns').style.display = 'none';
-      const searchStatus = document.getElementById('searchStatus');
-      searchStatus.innerHTML = `<span id="searchText" style="font-size:16px;color:#FFD700">Room: ${roomId}</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Back</button>`;
-      // Share link via TG
-      if (TG && TG.switchInlineQuery) {
-        // Could share via TG, but for now just display code
-      }
+      enterRoomLobby(roomId);
       connectToRoom(roomId);
     })
     .catch(() => {
       alert('Failed to create room');
     });
+}
+
+function enterRoomLobby(code) {
+  const grid = document.getElementById('ballGrid');
+  grid.innerHTML = '';
+  players = new Array(8).fill(null);
+  for (let i = 0; i < 8; i++) {
+    const slot = document.createElement('div');
+    slot.className = 'ball-slot empty-slot';
+    slot.id = 'slot-' + i;
+    slot.innerHTML = '';
+    grid.appendChild(slot);
+  }
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('multiplayerBtns').style.display = 'none';
+  document.getElementById('readyBtnWrap').style.display = 'block';
+  const searchStatus = document.getElementById('searchStatus');
+  const shareUrl = `https://t.me/balldropracebot?start=${code}`;
+  searchStatus.innerHTML = `
+    <span id="searchText" style="font-size:16px;color:#FFD700">Room: ${code}</span><br>
+    <div style="display:flex;gap:6px;margin-top:8px;justify-content:center">
+      <button onclick="shareRoom('${code}')" style="padding:8px 16px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Invite</button>
+      <button onclick="leaveQueue()" style="padding:8px 16px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Back</button>
+    </div>`;
+}
+
+function shareRoom(code) {
+  const url = `https://t.me/balldropracebot?start=${code}`;
+  if (TG && TG.openTelegramLink) {
+    TG.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent('Join my Ball Drop Race!')}`);
+  } else {
+    navigator.clipboard.writeText(code).then(() => {
+      alert('Room code copied: ' + code);
+    }).catch(() => {
+      prompt('Share this room code:', code);
+    });
+  }
+}
+
+function joinRoomByCode() {
+  const input = document.getElementById('joinRoomInput');
+  const code = input.value.trim().toUpperCase();
+  if (code.length < 4) return;
+  roomId = code;
+  isMultiplayer = true;
+  enterRoomLobby(code);
+  connectToRoom(code);
+}
+
+function sendReady() {
+  sendToServer({ type: 'ready' });
+  const btn = document.getElementById('readyBtn');
+  btn.textContent = 'WAITING...';
+  btn.style.background = '#666';
+  btn.disabled = true;
 }
 
 function leaveQueue() {
@@ -1359,6 +1427,7 @@ function leaveQueue() {
   mySlot = -1;
   roomSeed = 0;
   roomId = '';
+  document.getElementById('readyBtnWrap').style.display = 'none';
   initLobby();
 }
 
@@ -1368,22 +1437,7 @@ function joinRoomFromDeepLink() {
   if (startParam && startParam.length >= 4) {
     roomId = startParam;
     isMultiplayer = true;
-    // Clear lobby for multiplayer
-    const grid = document.getElementById('ballGrid');
-    grid.innerHTML = '';
-    players = new Array(8).fill(null);
-    for (let i = 0; i < 8; i++) {
-      const slot = document.createElement('div');
-      slot.className = 'ball-slot empty-slot';
-      slot.id = 'slot-' + i;
-      slot.innerHTML = '';
-      grid.appendChild(slot);
-    }
-    document.getElementById('startBtn').style.display = 'none';
-    document.getElementById('multiplayerBtns').style.display = 'none';
-    document.getElementById('betSection').style.display = 'none';
-    const searchStatus = document.getElementById('searchStatus');
-    searchStatus.innerHTML = `<div class="search-spinner"></div><span id="searchText">Joining room ${roomId}...</span>`;
+    enterRoomLobby(roomId);
     connectToRoom(roomId);
   }
 }
@@ -2635,6 +2689,11 @@ function restart() {
   mySlot = -1;
   roomSeed = 0;
   roomId = '';
+  document.getElementById('readyBtnWrap').style.display = 'none';
+  const readyBtn = document.getElementById('readyBtn');
+  readyBtn.textContent = 'READY';
+  readyBtn.style.background = '#4CAF50';
+  readyBtn.disabled = false;
 
   // Reset betting
   betAmount = 0;
