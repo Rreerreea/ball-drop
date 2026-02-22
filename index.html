@@ -1444,18 +1444,20 @@ function joinRoomFromDeepLink() {
 
 initLobby();
 
-// Check for deep link room invite (TG start_param or ?room= URL param)
+// Check for deep link room invite from all possible sources
 setTimeout(() => {
   const startParam = TG?.initDataUnsafe?.start_param;
   const urlRoom = new URLSearchParams(window.location.search).get('room');
-  const code = startParam || urlRoom;
+  const hashRoom = new URLSearchParams(window.location.hash.replace('#','?')).get('room');
+  const code = startParam || urlRoom || hashRoom;
+  console.log('[Room] start_param:', startParam, 'urlRoom:', urlRoom, 'hashRoom:', hashRoom, 'code:', code);
   if (code && code.length >= 4 && WS_BASE_URL) {
     roomId = code;
     isMultiplayer = true;
     enterRoomLobby(code);
     connectToRoom(code);
   }
-}, 200);
+}, 500);
 
 // Check daily bonus after a short delay
 setTimeout(checkDailyBonus, 500);

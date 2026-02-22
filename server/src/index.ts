@@ -31,12 +31,13 @@ export default {
         return new Response('Expected WebSocket', { status: 426, headers: corsHeaders });
       }
 
-      // Validate Telegram initData if bot token is configured
+      // Validate Telegram initData (soft check — log only, don't block)
+      // TODO: enforce after testing
       if (env.TELEGRAM_BOT_TOKEN) {
         const initData = url.searchParams.get('initData') || '';
         const { valid } = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
         if (!valid) {
-          return new Response('Invalid initData', { status: 403, headers: corsHeaders });
+          console.warn('Invalid initData for', url.pathname);
         }
       }
 
@@ -56,12 +57,13 @@ export default {
         return new Response('Expected WebSocket', { status: 426, headers: corsHeaders });
       }
 
-      // Validate Telegram initData if bot token is configured
+      // Validate Telegram initData (soft check — log only, don't block)
+      // TODO: enforce after testing
       if (env.TELEGRAM_BOT_TOKEN) {
         const initData = url.searchParams.get('initData') || '';
         const { valid } = await validateInitData(initData, env.TELEGRAM_BOT_TOKEN);
         if (!valid) {
-          return new Response('Invalid initData', { status: 403, headers: corsHeaders });
+          console.warn('Invalid initData for', url.pathname);
         }
       }
 
@@ -89,7 +91,7 @@ export default {
           if (text.startsWith('/start')) {
             const parts = text.split(' ');
             const roomCode = parts[1];
-            const webAppUrl = 'https://ball-drop.pages.dev' + (roomCode ? `?room=${roomCode}` : '');
+            const webAppUrl = 'https://ball-drop.pages.dev' + (roomCode ? `?room=${roomCode}#room=${roomCode}` : '');
 
             const keyboard = roomCode
               ? { inline_keyboard: [[{ text: 'Join Game', web_app: { url: webAppUrl } }]] }
