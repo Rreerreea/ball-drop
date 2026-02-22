@@ -445,17 +445,36 @@ canvas { display: block; }
 
 <!-- Lobby -->
 <div id="lobby">
-  <div class="lobby-topbar" style="justify-content:flex-end">
-    <div class="coin-display" onclick="showShop()" style="cursor:pointer">
-      <span class="coin-icon">🪙</span>
-      <span class="coin-count" id="coinCount">200</span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="opacity:0.5;margin-left:4px"><path d="M12 5v14M5 12h14"/></svg>
+  <h1>Шары</h1>
+
+  <!-- Main menu cards -->
+  <div id="menuCards" style="display:flex;flex-direction:column;gap:12px;width:min(90vw,340px)">
+    <div onclick="createPrivateRoom()" style="cursor:pointer;padding:20px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);text-align:center;transition:transform 0.2s" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform=''">
+      <div style="font-size:28px;margin-bottom:8px">👥</div>
+      <div style="color:#fff;font-size:16px;font-weight:700">Играть с друзьями</div>
+      <div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:4px">Создай комнату и пригласи друзей</div>
+    </div>
+    <div onclick="quickPlay()" style="cursor:pointer;padding:28px 20px;border-radius:20px;background:linear-gradient(135deg,#2979FF,#1565C0);text-align:center;transition:transform 0.2s;box-shadow:0 4px 24px rgba(41,121,255,0.3)" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform=''">
+      <div style="font-size:32px;margin-bottom:8px">⚡</div>
+      <div style="color:#fff;font-size:20px;font-weight:800">Быстрая игра</div>
+      <div style="color:rgba(255,255,255,0.7);font-size:13px;margin-top:4px">Найти случайных соперников</div>
+    </div>
+    <div onclick="showShop()" style="cursor:pointer;padding:20px;border-radius:20px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.15);display:flex;align-items:center;gap:14px;transition:transform 0.2s" ontouchstart="this.style.transform='scale(0.97)'" ontouchend="this.style.transform=''">
+      <div style="font-size:28px">🛒</div>
+      <div style="flex:1">
+        <div style="color:#fff;font-size:16px;font-weight:700">Магазин</div>
+        <div style="color:rgba(255,255,255,0.4);font-size:12px;margin-top:2px">Скины, бусты и монеты</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;background:rgba(255,215,0,0.1);border:1px solid rgba(255,215,0,0.2);border-radius:16px;padding:6px 12px">
+        <span style="font-size:14px">🪙</span>
+        <span id="coinCount" style="color:#FFD700;font-size:16px;font-weight:800">200</span>
+      </div>
     </div>
   </div>
-  <h1>Шары</h1>
-  <div class="search-status" id="searchStatus">
-    <div class="search-spinner"></div>
-    <span id="searchText">Finding opponents...</span>
+
+  <!-- Search/room status (hidden on main) -->
+  <div class="search-status" id="searchStatus" style="display:none">
+    <span id="searchText"></span>
   </div>
   <div class="ball-grid" id="ballGrid" style="display:none"></div>
 
@@ -471,10 +490,6 @@ canvas { display: block; }
   </div>
 
   <div class="boost-hint" id="boostHint" style="display:none"><span>⚡</span> 3 ускорения за гонку — нажми чтобы ускориться!</div>
-  <div id="multiplayerBtns" style="display:flex; flex-direction:column; gap:8px; align-items:center; width:100%">
-    <button id="quickPlayBtn" style="padding:16px 56px;border:none;border-radius:16px;background:#2979FF;color:#fff;font-size:18px;font-weight:800;cursor:pointer;letter-spacing:0.5px;width:100%" onclick="quickPlay()">Быстрая игра</button>
-    <button id="createRoomBtn" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:16px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="createPrivateRoom()">Играть с друзьями</button>
-  </div>
   <div id="readyBtnWrap" style="display:none;width:min(90vw,320px)">
     <button id="readyBtn" style="width:100%;padding:16px;border:none;border-radius:50px;background:#4CAF50;color:#fff;font-size:18px;font-weight:800;cursor:pointer" onclick="sendReady()">ГОТОВ</button>
   </div>
@@ -1277,10 +1292,11 @@ function initLobby() {
   document.getElementById('betSection').style.display = 'none';
 
   const searchStatus = document.getElementById('searchStatus');
+  searchStatus.style.display = 'none';
   searchStatus.innerHTML = '';
 
-  // No empty slot placeholders on main lobby
-  document.getElementById('multiplayerBtns').style.display = 'flex';
+  // Show main menu cards
+  document.getElementById('menuCards').style.display = 'flex';
   selectedPlayer = 0;
 
   updateCoinDisplay();
@@ -1343,9 +1359,10 @@ function quickPlay() {
     grid.appendChild(slot);
   }
   document.getElementById('startBtn').style.display = 'none';
-  document.getElementById('multiplayerBtns').style.display = 'none';
+  document.getElementById('menuCards').style.display = 'none';
   document.getElementById('readyBtnWrap').style.display = 'none';
   const searchStatus = document.getElementById('searchStatus');
+  searchStatus.style.display = '';
   searchStatus.innerHTML = '<div class="search-spinner"></div><span id="searchText">Ищем соперников...</span><br><button onclick="leaveQueue()" style="margin-top:10px;padding:8px 24px;border:1px solid rgba(255,255,255,0.2);border-radius:10px;background:rgba(255,255,255,0.08);color:#fff;font-size:13px;cursor:pointer">Назад</button>';
   connectToQueue();
 }
@@ -1380,10 +1397,11 @@ function enterRoomLobby(code) {
     grid.appendChild(slot);
   }
   document.getElementById('startBtn').style.display = 'none';
-  document.getElementById('multiplayerBtns').style.display = 'none';
+  document.getElementById('menuCards').style.display = 'none';
   document.getElementById('readyBtnWrap').style.display = 'block';
   document.getElementById('boostHint').style.display = 'flex';
   const searchStatus = document.getElementById('searchStatus');
+  searchStatus.style.display = '';
   searchStatus.innerHTML = `
     <span id="searchText" style="font-size:16px;color:#FFD700">Комната: ${code}</span><br>
     <div style="display:flex;gap:6px;margin-top:8px;justify-content:center">
