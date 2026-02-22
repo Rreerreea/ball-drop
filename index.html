@@ -22,8 +22,10 @@ canvas { display: block; }
 #lobby {
   position: fixed; inset: 0; z-index: 100;
   background: #1a1e2e;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 12px; padding: 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 12px 16px;
+  padding-top: env(safe-area-inset-top, 12px);
+  padding-bottom: env(safe-area-inset-bottom, 12px);
   overflow-y: auto;
 }
 #lobby h1 {
@@ -38,8 +40,7 @@ canvas { display: block; }
 /* Top bar */
 .lobby-topbar {
   display: flex; align-items: center; gap: 12px;
-  width: min(90vw, 340px); justify-content: space-between;
-  margin-bottom: 4px;
+  width: 100%; justify-content: space-between;
 }
 .topbar-btn {
   width: 42px; height: 42px; border-radius: 50%; border: none;
@@ -446,24 +447,19 @@ canvas { display: block; }
 
 <!-- Lobby -->
 <div id="lobby">
-  <div class="lobby-topbar">
-    <button class="topbar-btn" onclick="showProfile()">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0112 0v1"/></svg>
-    </button>
-    <div class="coin-display">
+  <div class="lobby-topbar" style="justify-content:flex-end">
+    <div class="coin-display" onclick="showShop()" style="cursor:pointer">
       <span class="coin-icon">🪙</span>
       <span class="coin-count" id="coinCount">200</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="opacity:0.5;margin-left:4px"><path d="M12 5v14M5 12h14"/></svg>
     </div>
-    <button class="topbar-btn" onclick="showShop()">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
-    </button>
   </div>
-  <h1>Ball Drop Race</h1>
+  <h1>Шары</h1>
   <div class="search-status" id="searchStatus">
     <div class="search-spinner"></div>
     <span id="searchText">Finding opponents...</span>
   </div>
-  <div class="ball-grid" id="ballGrid"></div>
+  <div class="ball-grid" id="ballGrid" style="display:none"></div>
 
   <div class="bet-section" id="betSection">
     <div class="bet-label">Place your bet:</div>
@@ -477,13 +473,9 @@ canvas { display: block; }
   </div>
 
   <div class="boost-hint"><span>⚡</span> You get 3 boosts per race — tap to dash!</div>
-  <div id="multiplayerBtns" style="display:flex; flex-direction:column; gap:8px; align-items:center; width:min(90vw,320px)">
-    <button id="quickPlayBtn" style="padding:16px 56px;border:none;border-radius:50px;background:#2979FF;color:#fff;font-size:18px;font-weight:800;cursor:pointer;letter-spacing:0.5px;width:100%" onclick="quickPlay()">QUICK PLAY</button>
-    <button id="createRoomBtn" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="createPrivateRoom()">Create Room</button>
-    <div style="display:flex;gap:6px;width:100%">
-      <input id="joinRoomInput" type="text" placeholder="Room code" maxlength="6" style="flex:1;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;text-align:center;text-transform:uppercase;outline:none" />
-      <button style="padding:12px 18px;border:2px solid rgba(255,255,255,0.15);border-radius:14px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="joinRoomByCode()">Join</button>
-    </div>
+  <div id="multiplayerBtns" style="display:flex; flex-direction:column; gap:8px; align-items:center; width:100%">
+    <button id="quickPlayBtn" style="padding:16px 56px;border:none;border-radius:16px;background:#2979FF;color:#fff;font-size:18px;font-weight:800;cursor:pointer;letter-spacing:0.5px;width:100%" onclick="quickPlay()">Быстрая игра</button>
+    <button id="createRoomBtn" style="width:100%;padding:12px;border:2px solid rgba(255,255,255,0.15);border-radius:16px;background:rgba(255,255,255,0.05);color:#fff;font-size:14px;font-weight:700;cursor:pointer" onclick="createPrivateRoom()">Играть с друзьями</button>
   </div>
   <div id="readyBtnWrap" style="display:none;width:min(90vw,320px)">
     <button id="readyBtn" style="width:100%;padding:16px;border:none;border-radius:50px;background:#4CAF50;color:#fff;font-size:18px;font-weight:800;cursor:pointer" onclick="sendReady()">READY</button>
@@ -1287,18 +1279,9 @@ function initLobby() {
   document.getElementById('betSection').style.display = 'none';
 
   const searchStatus = document.getElementById('searchStatus');
+  searchStatus.innerHTML = '';
 
-  // Create 8 empty slots
-  for (let i = 0; i < 8; i++) {
-    const slot = document.createElement('div');
-    slot.className = 'ball-slot empty-slot';
-    slot.id = 'slot-' + i;
-    slot.innerHTML = '';
-    grid.appendChild(slot);
-  }
-
-  // Multiplayer only — show buttons
-  searchStatus.innerHTML = '<span id="searchText" style="color:rgba(255,255,255,0.5)">Choose a mode</span>';
+  // No empty slot placeholders on main lobby
   document.getElementById('multiplayerBtns').style.display = 'flex';
   selectedPlayer = 0;
 
@@ -1351,6 +1334,7 @@ function quickPlay() {
   // Clear lobby, start searching via WS
   isMultiplayer = true;
   const grid = document.getElementById('ballGrid');
+  grid.style.display = 'grid';
   grid.innerHTML = '';
   players = new Array(8).fill(null);
   for (let i = 0; i < 8; i++) {
@@ -1385,6 +1369,7 @@ function createPrivateRoom() {
 
 function enterRoomLobby(code) {
   const grid = document.getElementById('ballGrid');
+  grid.style.display = 'grid';
   grid.innerHTML = '';
   players = new Array(8).fill(null);
   for (let i = 0; i < 8; i++) {
@@ -1445,6 +1430,7 @@ function leaveQueue() {
   roomSeed = 0;
   roomId = '';
   document.getElementById('readyBtnWrap').style.display = 'none';
+  document.getElementById('ballGrid').style.display = 'none';
   initLobby();
 }
 
